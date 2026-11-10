@@ -67,11 +67,13 @@ def test_nonfinite_simplification_is_rejected():
         enforce_face_limit(np.array(mesh.vertices), np.array(mesh.faces), 10, simplify=invalid)
 
 
-def test_checkpoint_reexport_writes_valid_glb_without_inference(tmp_path, monkeypatch):
+@pytest.fixture
+def checkpoint_export(tmp_path, monkeypatch):
     import reexport_pixal3d
 
     mesh = trimesh.creation.icosphere(subdivisions=0, radius=0.5)
     np.savez(tmp_path / "mesh.npz", vertices=np.array(mesh.vertices), faces=np.array(mesh.faces))
+    np.savez(tmp_path / "raw.npz", vertices=np.array(mesh.vertices), faces=np.array(mesh.faces))
     (tmp_path / "mesh.json").write_text(json.dumps({"hr_resolution": 512}))
     np.savez(tmp_path / "texture.npz", tex_out=np.ones((1, 6), dtype=np.float32),
              tex_coords=np.zeros((1, 4), dtype=np.int32))
@@ -83,6 +85,11 @@ def test_checkpoint_reexport_writes_valid_glb_without_inference(tmp_path, monkey
         return np.full((8, 8, 4), 255, dtype=np.uint8), np.zeros((8, 8, 3), dtype=np.uint8), "OPAQUE"
 
     monkeypatch.setattr(reexport_pixal3d, "bake_texture", bake)
+    return reexport_pixal3d
+
+
+def test_checkpoint_reexport_writes_valid_glb_without_inference(tmp_path, checkpoint_export):
+    reexport_pixal3d = checkpoint_export
     arguments = ["--ckpt", str(tmp_path), "--output", str(tmp_path / "model.glb"),
                  "--report", str(tmp_path / "report.json"), "--max-faces", "20", "--texture-size", "8"]
     report = reexport_pixal3d.main(arguments)
@@ -91,4 +98,32 @@ def test_checkpoint_reexport_writes_valid_glb_without_inference(tmp_path, monkey
     assert (tmp_path / "model.glb").exists()
     with pytest.raises(SystemExit) as error:
         reexport_pixal3d.main(arguments)
+    assert error.value.code == 2
+
+
+def test_soft_target_reexport_does_not_apply_a_strict_cap(tmp_path, checkpoint_export, monkeypatch):
+    def cleanup(vertices, faces, *, target_faces, no_cleanup):
+        assert target_faces == 10 and not no_cleanup
+        return vertices, faces
+
+    def reject_cap(*args, **kwargs):
+        raise AssertionError("A strict cap was not requested")
+
+    monkeypatch.setattr(checkpoint_export, "_cleanup_and_simplify_mesh", cleanup)
+    monkeypatch.setattr(checkpoint_export, "enforce_face_limit", reject_cap)
+    report = checkpoint_export.main([
+        "--ckpt", str(tmp_path), "--raw-mesh", str(tmp_path / "raw.npz"),
+        "--target-faces", "10", "--texture-size", "8",
+        "--output", str(tmp_path / "soft.glb"), "--report", str(tmp_path / "soft.json")])
+    assert report["max_faces"] == 0 and report["target_faces"] == 10
+    assert report["exported_faces"] == 20 and report["status"] == "complete"
+    assert report["budget_diagnostics"] == {}
+
+
+def test_soft_target_requires_original_raw_geometry(tmp_path):
+    import reexport_pixal3d
+
+    with pytest.raises(SystemExit) as error:
+        reexport_pixal3d.main(["--ckpt", str(tmp_path), "--target-faces", "20000",
+                             "--output", str(tmp_path / "soft.glb"), "--report", str(tmp_path / "soft.json")])
     assert error.value.code == 2
