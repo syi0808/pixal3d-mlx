@@ -9,6 +9,8 @@ The completed native-MoGe 1024 experiment, including process footprint, swap,
 and pressure measurements, is documented in [1024-validation.md](1024-validation.md).
 Follow-up decoder liveness ablations and transformer precision/cache findings
 are documented in [decoder-investigation.md](decoder-investigation.md).
+The validated production shape/texture policy is documented in
+[shape-decoder-integration.md](shape-decoder-integration.md).
 
 ## Execution and memory ownership
 
@@ -26,7 +28,8 @@ The main and checkpoint-resume entrypoints share `InferenceRuntime`:
   above Metal's recommended working set are rejected.
 - Bounded LRU model and feature caches, with oversized entries bypassed rather
   than admitted. Checkpoint fingerprints include file size and modification
-  time; decoder cache identities also include spatial ordering.
+  time; decoder cache identities also include spatial ordering and evaluation
+  interval.
 - Content-addressed image encoding and camera caches. Separate seed outputs
   can reuse features even when preprocessed images have different filenames.
 - One active job per runtime, and serialized runtime ownership of process-wide
@@ -70,6 +73,13 @@ export still have CPU stages; this is not an entirely GPU-resident pipeline.
 Decoder storage can use a Morton permutation without changing which voxels
 are evaluated. Shape and texture use the same ordering for guide subdivision
 alignment. `--sparse-order preserve` retains legacy coordinate order.
+
+Pixal3D generation/resume default to `--decoder-eval-interval 1`: only the two
+convolutions in the last shape/texture upsample evaluate between kernel
+contributions, shortening large gather/GEMM/scatter live ranges. The predictive
+shape path and guided texture path retain the same accumulation order and
+weights. `--decoder-eval-interval 0` restores the legacy evaluation schedule.
+Plain decoder construction remains legacy by default for API compatibility.
 
 ## NAF without dense high-resolution feature output
 

@@ -2,8 +2,11 @@
 
 ## Scope and method
 
-Measured on 2026-11-10, Apple M3 Pro / 18 GiB, MLX 0.31.2. These are
-**opt-in research paths**, not changes to production generation defaults.
+Measured on 2026-11-10, Apple M3 Pro / 18 GiB, MLX 0.31.2. At the time of these
+measurements these were **opt-in research paths**. The later validated
+final-upsample policy is now integrated for production shape and texture
+decoding; see [shape-decoder-integration.md](shape-decoder-integration.md).
+The other ablations and precision variants remain research-only.
 No retraining, token pruning, quantization, or sampling-step reduction is used.
 
 The input is the native-MoGe 1024 shoe / seed 42 run documented in
