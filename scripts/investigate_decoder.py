@@ -1,6 +1,7 @@
 """Opt-in checkpoint replay for decoder memory research; production paths stay unchanged."""
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import asdict
 import gc
 import hashlib
@@ -26,6 +27,21 @@ from trellmlx.weight_loader import load_weights
 
 
 CHECKPOINT_ROOT = Path.home() / ".cache/huggingface/hub/models--TencentARC--Pixal3D/snapshots" / PIXAL_REVISION / "ckpts"
+
+
+@contextmanager
+def preserve_rope_dtype(enabled):
+    from trellmlx.models import sparse_structure_flow
+
+    original = sparse_structure_flow.apply_rope
+    if enabled:
+        def cast_rotated_query(features, phases):
+            return original(features, phases).astype(features.dtype)
+        sparse_structure_flow.apply_rope = cast_rotated_query
+    try:
+        yield
+    finally:
+        sparse_structure_flow.apply_rope = original
 
 
 class Recorder:
@@ -106,10 +122,11 @@ def prepare_latent(arguments):
         model.compute_dtype = mx.float16
     noise = mx.random.normal((len(coordinates), 32), key=mx.random.key(arguments.seed + 3))
     started = time.perf_counter()
-    latent = flow_euler_sample(model, noise, cond, negative, steps=12, guidance_strength=1.0,
-                               guidance_rescale=0.0, guidance_interval=(0.6, 0.9), rescale_t=3.0,
-                               verbose=False, coords=mx.array(coordinates[:, 1:]), concat_cond=_normalize_slat(shape),
-                               conditioning_cache_bytes=int(arguments.conditioning_cache_mb * 1024 ** 2))
+    with preserve_rope_dtype(arguments.preserve_rope_dtype):
+        latent = flow_euler_sample(model, noise, cond, negative, steps=12, guidance_strength=1.0,
+                                   guidance_rescale=0.0, guidance_interval=(0.6, 0.9), rescale_t=3.0,
+                                   verbose=False, coords=mx.array(coordinates[:, 1:]), concat_cond=_normalize_slat(shape),
+                                   conditioning_cache_bytes=int(arguments.conditioning_cache_mb * 1024 ** 2))
     latent = _denormalize_slat(latent, mean=TEX_SLAT_MEAN, std=TEX_SLAT_STD)
     mx.eval(latent)
     arguments.latent.parent.mkdir(parents=True, exist_ok=True)
@@ -117,6 +134,7 @@ def prepare_latent(arguments):
     print(json.dumps({"saved": str(arguments.latent), "sampling_seconds": time.perf_counter() - started,
                       "peak_mlx_bytes": mx.get_peak_memory(), "seed": arguments.seed,
                       "resolution": resolution, "flow_mixed": arguments.flow_mixed,
+                      "preserve_rope_dtype": arguments.preserve_rope_dtype,
                       "conditioning_cache_mb": arguments.conditioning_cache_mb}, indent=2), flush=True)
 
 
@@ -142,7 +160,9 @@ def decode(arguments):
         "bounded-phased": DecoderExperiment(convolution_eval_interval=arguments.convolution_eval_interval,
                                             phase_barriers=True),
         "bounded-final": DecoderExperiment(convolution_eval_interval=arguments.convolution_eval_interval,
-                                           bounded_final_projection_only=True),
+                                           convolution_scope="final-projection"),
+        "bounded-upsample": DecoderExperiment(convolution_eval_interval=arguments.convolution_eval_interval,
+                                              convolution_scope="final-upsample"),
         "combined": DecoderExperiment(phase_barriers=True, early_topology=True, fused_skip=True,
                                        terminal_chunk_size=arguments.chunk_size),
     }[arguments.variant]
@@ -219,13 +239,17 @@ def main():
     parser.add_argument("--latent", type=Path, default=Path("outputs/runtime/decoder-investigation/texture-latent.npz"))
     parser.add_argument("--report", type=Path, default=Path("outputs/runtime/decoder-investigation/reference.json"))
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--variant", choices=["reference", "phased", "early-topology", "fused-skip", "terminal-chunked", "combined", "bounded-conv", "bounded-phased", "bounded-final"], default="reference")
+    parser.add_argument("--variant", choices=["reference", "phased", "early-topology", "fused-skip", "terminal-chunked", "combined", "bounded-conv", "bounded-phased", "bounded-final", "bounded-upsample"], default="reference")
     parser.add_argument("--chunk-size", type=int, default=65536)
     parser.add_argument("--convolution-eval-interval", type=int, default=1)
     parser.add_argument("--resident-shape", action="store_true")
     parser.add_argument("--flow-mixed", action="store_true")
+    parser.add_argument("--preserve-rope-dtype", action="store_true",
+                        help="Research only: round FP32 rotary output back to the incoming activation dtype")
     parser.add_argument("--conditioning-cache-mb", type=float, default=128.0)
     arguments = parser.parse_args()
+    if arguments.preserve_rope_dtype and not arguments.flow_mixed:
+        parser.error("--preserve-rope-dtype requires --flow-mixed")
     with InferenceRuntime(model_cache_bytes=0, feature_cache_bytes=0):
         if arguments.mode == "prepare":
             prepare_latent(arguments)

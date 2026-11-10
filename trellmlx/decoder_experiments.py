@@ -17,7 +17,7 @@ class DecoderExperiment:
     fused_skip: bool = False
     terminal_chunk_size: int = 0
     convolution_eval_interval: int = 0
-    bounded_final_projection_only: bool = False
+    convolution_scope: str = "all"
 
 
 class BoundedSparseConv3d(SparseConv3d):
@@ -153,6 +153,8 @@ class ResearchDecoder(SLatDecoder):
             raise ValueError("Terminal chunk size cannot be negative")
         if experiment.convolution_eval_interval < 0:
             raise ValueError("Convolution evaluation interval cannot be negative")
+        if experiment.convolution_scope not in ("all", "final-projection", "final-upsample"):
+            raise ValueError("Unknown bounded convolution scope")
         object.__setattr__(self, "experiment", experiment)
         object.__setattr__(self, "record", record)
         for level_index, level in enumerate(self.blocks):
@@ -163,10 +165,11 @@ class ResearchDecoder(SLatDecoder):
                 if experiment.convolution_eval_interval:
                     current_block = level[block_index]
                     for name, convolution in list(current_block.items()):
-                        if experiment.bounded_final_projection_only and not (
-                            level_index == len(self.blocks) - 2 and isinstance(current_block, SparseResBlockC2S3d) and name == "conv1"
-                        ):
-                            continue
+                        if experiment.convolution_scope != "all":
+                            if level_index != len(self.blocks) - 2 or not isinstance(current_block, SparseResBlockC2S3d):
+                                continue
+                            if experiment.convolution_scope == "final-projection" and name != "conv1":
+                                continue
                         if isinstance(convolution, SparseConv3d):
                             current_block[name] = BoundedSparseConv3d(convolution.in_channels, convolution.out_channels,
                                                                      convolution.kernel_size, experiment.convolution_eval_interval)
