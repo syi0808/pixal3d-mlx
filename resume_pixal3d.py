@@ -51,13 +51,16 @@ def main(argv=None, runtime=None):
     parser.add_argument("--naf-tile-rows", type=int, default=128)
     parser.add_argument("--naf-threads", type=int, choices=[64, 128, 256], default=128)
     parser.add_argument("--sparse-order", choices=["preserve", "morton"], default="morton")
+    parser.add_argument("--decoder-eval-interval", type=int, default=1,
+                        help="Evaluate every N sparse kernels in the final shape/texture upsample (0=legacy)")
     parser.add_argument("--slat-precision", choices=["float32", "mixed"], default="float32")
     parser.add_argument("--quantize", type=int, choices=[0, 4, 8], default=0)
     parser.add_argument("--dense-conditioning", action="store_true")
     parser.add_argument("--compile-step", action="store_true")
     parser.add_argument("--runtime-report")
     args = parser.parse_args(argv)
-    if min(args.feature_cache_mb, args.conditioning_cache_mb, args.ffn_chunk_size, args.naf_tile_rows) < 0:
+    if min(args.feature_cache_mb, args.conditioning_cache_mb, args.ffn_chunk_size, args.naf_tile_rows,
+           args.decoder_eval_interval) < 0:
         parser.error("Cache and chunk sizes must be nonnegative")
     from trellmlx.runtime import InferenceRuntime
 
@@ -119,8 +122,9 @@ def _resume(args, runtime):
     from trellmlx.models.shape_slat_decoder import SLatDecoder
 
     shape_dec_ckpt = HF_PIXAL3D + "shape_dec_next_dc_f16c32_fp16.safetensors"
-    shape_decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order)
-    shape_decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt), args.sparse_order), lambda: shape_decoder,
+    shape_decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order,
+                                final_upsample_eval_interval=args.decoder_eval_interval)
+    shape_decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt), args.sparse_order, args.decoder_eval_interval), lambda: shape_decoder,
                                        lambda model: load_weights(model, shape_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()
@@ -264,8 +268,9 @@ def _resume(args, runtime):
         tex_dec_ckpt = HF_4B + "tex_dec_next_dc_f16c32_fp16.safetensors"
 
     runtime.advance("texture_decode_and_export")
-    tex_decoder = SLatDecoder(out_channels=6, pred_subdiv=False, spatial_order=args.sparse_order)
-    tex_decoder = runtime.load_model(("texture_decoder", checkpoint_fingerprint(tex_dec_ckpt), args.sparse_order), lambda: tex_decoder,
+    tex_decoder = SLatDecoder(out_channels=6, pred_subdiv=False, spatial_order=args.sparse_order,
+                              final_upsample_eval_interval=args.decoder_eval_interval)
+    tex_decoder = runtime.load_model(("texture_decoder", checkpoint_fingerprint(tex_dec_ckpt), args.sparse_order, args.decoder_eval_interval), lambda: tex_decoder,
                                      lambda model: load_weights(model, tex_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()

@@ -344,12 +344,15 @@ def main(argv=None, runtime=None):
     parser.add_argument("--naf-threads", type=int, choices=[64, 128, 256], default=128)
     parser.add_argument("--compile-step", action="store_true")
     parser.add_argument("--sparse-order", choices=["preserve", "morton"], default="morton")
+    parser.add_argument("--decoder-eval-interval", type=int, default=1,
+                        help="Evaluate every N sparse kernels in the final shape/texture upsample (0=legacy)")
     parser.add_argument("--slat-precision", choices=["float32", "mixed"], default="float32",
                         help="Experimental FP16 SLat compute; accumulations and sampling stay FP32")
     parser.add_argument("--ss-precision", choices=["float32", "mixed"], default="float32",
                         help="Mixed FP16 compute is experimental; FP32 remains the stable default")
     args = parser.parse_args(argv)
-    if min(args.feature_cache_mb, args.conditioning_cache_mb, args.naf_tile_rows, args.ffn_chunk_size) < 0:
+    if min(args.feature_cache_mb, args.conditioning_cache_mb, args.naf_tile_rows, args.ffn_chunk_size,
+           args.decoder_eval_interval) < 0:
         parser.error("Cache and chunk sizes must be nonnegative")
 
     # Redirect --resume to the dedicated resume script
@@ -371,6 +374,7 @@ def main(argv=None, runtime=None):
                "--naf-tile-rows", str(args.naf_tile_rows),
                "--naf-threads", str(args.naf_threads),
                "--sparse-order", args.sparse_order,
+               "--decoder-eval-interval", str(args.decoder_eval_interval),
                "--slat-precision", args.slat_precision,
                "--quantize", str(args.quantize)]
         if args.runtime_report:
@@ -648,9 +652,10 @@ def _generate(args, runtime):
     print("\n=== Stage 2b: Upsample → HR coordinates ===", flush=True)
 
     shape_dec_ckpt = HF_PIXAL3D + "shape_dec_next_dc_f16c32_fp16.safetensors"
-    decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order)
+    decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order,
+                          final_upsample_eval_interval=args.decoder_eval_interval)
     runtime.advance("coordinate_subdivision")
-    decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt), args.sparse_order), lambda: decoder,
+    decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt), args.sparse_order, args.decoder_eval_interval), lambda: decoder,
                                  lambda model: load_weights(model, shape_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()
@@ -756,8 +761,9 @@ def _generate(args, runtime):
     print("\n=== Stage 3: Decode Shape ===", flush=True)
     runtime.advance("shape_decode_and_mesh")
 
-    shape_decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order)
-    shape_decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt), args.sparse_order), lambda: shape_decoder,
+    shape_decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order,
+                                final_upsample_eval_interval=args.decoder_eval_interval)
+    shape_decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt), args.sparse_order, args.decoder_eval_interval), lambda: shape_decoder,
                                        lambda model: load_weights(model, shape_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()
@@ -892,9 +898,10 @@ def _generate(args, runtime):
         )
         tex_dec_ckpt = HF_4B + "tex_dec_next_dc_f16c32_fp16.safetensors"
 
-    tex_decoder = SLatDecoder(out_channels=6, pred_subdiv=False, spatial_order=args.sparse_order)
+    tex_decoder = SLatDecoder(out_channels=6, pred_subdiv=False, spatial_order=args.sparse_order,
+                              final_upsample_eval_interval=args.decoder_eval_interval)
     runtime.advance("texture_decode_and_export")
-    tex_decoder = runtime.load_model(("texture_decoder", checkpoint_fingerprint(tex_dec_ckpt), args.sparse_order), lambda: tex_decoder,
+    tex_decoder = runtime.load_model(("texture_decoder", checkpoint_fingerprint(tex_dec_ckpt), args.sparse_order, args.decoder_eval_interval), lambda: tex_decoder,
                                      lambda model: load_weights(model, tex_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()

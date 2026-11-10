@@ -110,11 +110,15 @@ class SparseConv3d(nn.Module):
     (flex_gemm convention, NOT PyTorch's [out_C, in_C, kD, kH, kW]).
     """
 
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3,
+                 eval_interval: int = 0):
         super().__init__()
+        if not isinstance(eval_interval, int) or eval_interval < 0:
+            raise ValueError("Convolution evaluation interval must be a nonnegative integer")
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
+        self.eval_interval = eval_interval
         K = kernel_size
 
         scale = (2.0 / (in_channels * K * K * K)) ** 0.5
@@ -157,5 +161,8 @@ class SparseConv3d(nn.Module):
             if sources.size:
                 edge_out = feats[sources] @ w[kernel_index]
                 out = out.at[targets].add(edge_out)
+                del edge_out
+            if self.eval_interval and (kernel_index + 1) % self.eval_interval == 0:
+                mx.eval(out)
 
         return out + self.bias

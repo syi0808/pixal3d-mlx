@@ -94,7 +94,7 @@ def test_resume_texture_projection_uses_checkpoint_resolution(monkeypatch, resol
 
     class TinyDecoder:
         def __init__(self, **kwargs):
-            pass
+            assert kwargs["final_upsample_eval_interval"] == 1
 
         def __call__(self, *args, **kwargs):
             return mx.zeros((1, 7)), mx.zeros((1, 4), dtype=mx.int32), []
@@ -156,7 +156,7 @@ def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolu
 
     class TinyShapeDecoder:
         def __init__(self, **kwargs):
-            pass
+            assert kwargs["final_upsample_eval_interval"] == 1
 
         def upsample(self, *args, **kwargs):
             return mx.array([[0, 0, 0, 0], [0, 511, 511, 511]])

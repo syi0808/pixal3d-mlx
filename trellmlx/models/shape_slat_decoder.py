@@ -96,7 +96,8 @@ class SparseChannel2Spatial:
 class SparseResBlockC2S3d(nn.Module):
     """Upsample block: Norm→SiLU→Conv→Channel2Spatial→Norm→SiLU→Conv + skip."""
 
-    def __init__(self, channels: int, out_channels: int, pred_subdiv: bool = True):
+    def __init__(self, channels: int, out_channels: int, pred_subdiv: bool = True,
+                 convolution_eval_interval: int = 0):
         super().__init__()
         self.channels = channels
         self.out_channels = out_channels
@@ -104,8 +105,10 @@ class SparseResBlockC2S3d(nn.Module):
 
         self.norm1 = LayerNorm32(channels, affine=True)
         self.norm2 = LayerNorm32(out_channels)  # no affine, like reference
-        self.conv1 = SparseConv3d(channels, out_channels * 8, kernel_size=3)
-        self.conv2 = SparseConv3d(out_channels, out_channels, kernel_size=3)
+        self.conv1 = SparseConv3d(channels, out_channels * 8, kernel_size=3,
+                                 eval_interval=convolution_eval_interval)
+        self.conv2 = SparseConv3d(out_channels, out_channels, kernel_size=3,
+                                 eval_interval=convolution_eval_interval)
         if pred_subdiv:
             self.to_subdiv = nn.Linear(channels, 8)
 
@@ -193,8 +196,11 @@ class SLatDecoder(nn.Module):
         num_blocks: list = None,
         pred_subdiv: bool = True,
         spatial_order: str = "preserve",
+        final_upsample_eval_interval: int = 0,
     ):
         super().__init__()
+        if not isinstance(final_upsample_eval_interval, int) or final_upsample_eval_interval < 0:
+            raise ValueError("Final upsample evaluation interval must be a nonnegative integer")
         if model_channels is None:
             model_channels = [1024, 512, 256, 128, 64]
         if num_blocks is None:
@@ -206,6 +212,7 @@ class SLatDecoder(nn.Module):
         if spatial_order not in ("preserve", "morton"):
             raise ValueError(f"Unknown sparse spatial order: {spatial_order}")
         self.spatial_order = spatial_order
+        self.final_upsample_eval_interval = final_upsample_eval_interval
 
         self.from_latent = nn.Linear(latent_channels, model_channels[0])
         self.output_layer = nn.Linear(model_channels[-1], out_channels)
@@ -217,7 +224,9 @@ class SLatDecoder(nn.Module):
                 level.append(SparseConvNeXtBlock3d(ch))
             if i < len(model_channels) - 1:
                 level.append(SparseResBlockC2S3d(ch, model_channels[i + 1],
-                                                 pred_subdiv=pred_subdiv))
+                                                 pred_subdiv=pred_subdiv,
+                                                 convolution_eval_interval=(final_upsample_eval_interval
+                                                                            if i == len(model_channels) - 2 else 0)))
             self.blocks.append(level)
 
     def _forward_levels(self, feats: mx.array, coords: mx.array,
