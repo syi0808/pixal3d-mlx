@@ -129,12 +129,14 @@ def prepare_latent(arguments):
                                    conditioning_cache_bytes=int(arguments.conditioning_cache_mb * 1024 ** 2))
     latent = _denormalize_slat(latent, mean=TEX_SLAT_MEAN, std=TEX_SLAT_STD)
     mx.eval(latent)
+    host_latent = np.array(latent)
     arguments.latent.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(arguments.latent, latent=np.array(latent), coordinates=coordinates)
+    np.savez_compressed(arguments.latent, latent=host_latent, coordinates=coordinates)
     print(json.dumps({"saved": str(arguments.latent), "sampling_seconds": time.perf_counter() - started,
                       "peak_mlx_bytes": mx.get_peak_memory(), "seed": arguments.seed,
                       "resolution": resolution, "flow_mixed": arguments.flow_mixed,
                       "preserve_rope_dtype": arguments.preserve_rope_dtype,
+                      "all_finite": bool(np.isfinite(host_latent).all()),
                       "conditioning_cache_mb": arguments.conditioning_cache_mb}, indent=2), flush=True)
 
 
@@ -194,14 +196,15 @@ def decode(arguments):
     actual_coordinates = np.array(output_coordinates)
     with np.load(arguments.checkpoints / "texture.npz") as expected:
         difference = transformed - expected["tex_out"]
+        all_finite = bool(np.isfinite(transformed).all())
         report["comparison_to_archived_output"] = {
             "coordinates_equal": bool(np.array_equal(actual_coordinates, expected["tex_coords"])),
-            "max_absolute_error": float(np.max(np.abs(difference))),
-            "mean_absolute_error": float(np.mean(np.abs(difference))),
-            "root_mean_squared_error": float(np.sqrt(np.mean(difference ** 2))),
-            "all_finite": bool(np.isfinite(transformed).all()),
-            "per_channel_mean_absolute_error": np.mean(np.abs(difference), axis=0).tolist(),
-            "per_channel_root_mean_squared_error": np.sqrt(np.mean(difference ** 2, axis=0)).tolist(),
+            "max_absolute_error": float(np.max(np.abs(difference))) if all_finite else None,
+            "mean_absolute_error": float(np.mean(np.abs(difference))) if all_finite else None,
+            "root_mean_squared_error": float(np.sqrt(np.mean(difference ** 2))) if all_finite else None,
+            "all_finite": all_finite,
+            "per_channel_mean_absolute_error": np.mean(np.abs(difference), axis=0).tolist() if all_finite else None,
+            "per_channel_root_mean_squared_error": np.sqrt(np.mean(difference ** 2, axis=0)).tolist() if all_finite else None,
         }
     arguments.report.parent.mkdir(parents=True, exist_ok=True)
     arguments.report.write_text(json.dumps(report, indent=2) + "\n")
