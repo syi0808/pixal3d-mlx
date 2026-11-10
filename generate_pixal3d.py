@@ -333,7 +333,8 @@ def main(argv=None, runtime=None):
     parser.add_argument("--dense-conditioning", action="store_true",
                         help="Use the dense projection reference instead of active coordinates")
     parser.add_argument("--naf-backend", choices=["auto", "metal", "reference"], default="auto")
-    parser.add_argument("--memory-budget-gb", type=float, default=10.0)
+    parser.add_argument("--memory-budget-gb", type=float, default=10.0,
+                        help="MLX graph-evaluation guideline in decimal GB, not a hard allocation cap")
     parser.add_argument("--model-cache-gb", type=float, default=2.0)
     parser.add_argument("--feature-cache-mb", type=float, default=256.0)
     parser.add_argument("--runtime-report")

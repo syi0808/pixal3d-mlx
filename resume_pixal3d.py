@@ -41,7 +41,8 @@ def main(argv=None, runtime=None):
     parser.add_argument("--no-rembg", action="store_true")
     parser.add_argument("--no-cleanup", action="store_true")
     parser.add_argument("--keep-largest", action="store_true")
-    parser.add_argument("--memory-budget-gb", type=float, default=10.0)
+    parser.add_argument("--memory-budget-gb", type=float, default=10.0,
+                        help="MLX graph-evaluation guideline in decimal GB, not a hard allocation cap")
     parser.add_argument("--model-cache-gb", type=float, default=2.0)
     parser.add_argument("--feature-cache-mb", type=float, default=256.0)
     parser.add_argument("--conditioning-cache-mb", type=float, default=128.0)

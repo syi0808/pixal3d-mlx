@@ -274,12 +274,16 @@ class InferenceRuntime:
         mx.clear_cache()
 
     def report(self, status="complete"):
+        peak_memory = mx.get_peak_memory()
         return {
             "schema": "pixal3d.runtime.v1", "status": status,
             "mlx_version": mx.__version__, "device": mx.device_info(),
             "job": dict(self.job_metadata),
             "memory_budget_bytes": self.memory_budget_bytes,
-            "peak_mlx_bytes": mx.get_peak_memory(), "stages": list(self.records),
+            "memory_budget_is_hard_limit": False,
+            "memory_budget_exceeded": peak_memory > self.memory_budget_bytes,
+            "memory_budget_excess_bytes": max(0, peak_memory - self.memory_budget_bytes),
+            "peak_mlx_bytes": peak_memory, "stages": list(self.records),
             "model_loads": self.model_loads, "model_cache_hits": self.models.hits,
             "feature_cache_hits": self.features.hits,
             "resident_model_bytes": self.models.used_bytes,

@@ -100,6 +100,15 @@ def test_runtime_reuses_models_and_restores_global_limits_after_failure(tmp_path
         mx.set_memory_limit(original)
 
 
+def test_runtime_reports_memory_guideline_overshoot_without_claiming_a_hard_cap(monkeypatch):
+    with InferenceRuntime(memory_budget_bytes=6_000_000_000, model_cache_bytes=0, feature_cache_bytes=0) as runtime:
+        monkeypatch.setattr(mx, "get_peak_memory", lambda: 6_500_000_000)
+        report = runtime.report()
+        assert report["memory_budget_is_hard_limit"] is False
+        assert report["memory_budget_exceeded"] is True
+        assert report["memory_budget_excess_bytes"] == 500_000_000
+
+
 def test_persistent_batch_reuses_one_runtime_and_checks_outputs(tmp_path, monkeypatch):
     import generate_pixal3d
     from trellmlx.batch_inference import BatchJob, BatchRunOptions, run_batch
