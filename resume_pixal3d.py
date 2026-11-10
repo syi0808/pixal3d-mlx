@@ -38,6 +38,8 @@ def main(argv=None, runtime=None):
     parser.add_argument("--fov", type=float, default=-1.0)
     parser.add_argument("--texture-size", type=int, default=4096)
     parser.add_argument("--target-faces", type=int, default=500_000)
+    parser.add_argument("--max-faces", type=int, default=0,
+                        help="Strict final triangle limit after mesh repair (0=disabled)")
     parser.add_argument("--no-rembg", action="store_true")
     parser.add_argument("--no-cleanup", action="store_true")
     parser.add_argument("--keep-largest", action="store_true")
@@ -60,7 +62,7 @@ def main(argv=None, runtime=None):
     parser.add_argument("--runtime-report")
     args = parser.parse_args(argv)
     if min(args.feature_cache_mb, args.conditioning_cache_mb, args.ffn_chunk_size, args.naf_tile_rows,
-           args.decoder_eval_interval) < 0:
+           args.decoder_eval_interval, args.max_faces) < 0:
         parser.error("Cache and chunk sizes must be nonnegative")
     from trellmlx.runtime import InferenceRuntime
 
@@ -162,6 +164,9 @@ def _resume(args, runtime):
         no_cleanup=args.no_cleanup,
         keep_largest=args.keep_largest,
     )
+    if args.max_faces:
+        from trellmlx.mesh_budget import enforce_face_limit
+        vertices, faces = enforce_face_limit(vertices, faces, args.max_faces)
 
     # === DINOv3 + NAF for texture conditioning ===
     print("\n=== Loading DINOv3 + NAF ===", flush=True)
@@ -298,6 +303,8 @@ def _resume(args, runtime):
 
     t0 = time.perf_counter()
     uv_verts, uv_faces, uvs, vmapping = uv_unwrap(vertices, faces)
+    if args.max_faces and len(uv_faces) > args.max_faces:
+        raise RuntimeError("UV output exceeds the strict triangle budget")
     print(f"  UV unwrap: {len(uv_verts):,}V {len(uv_faces):,}F ({time.perf_counter()-t0:.1f}s)", flush=True)
 
     base_color, metallic_roughness, alpha_mode = bake_texture(

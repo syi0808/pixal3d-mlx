@@ -83,11 +83,12 @@ def test_resume_forwarding_preserves_decoder_policy(monkeypatch, interval):
 
     forwarded = []
     monkeypatch.setattr(resume_pixal3d, "main", lambda argv, runtime=None: forwarded.extend(argv))
-    arguments = ["--image", "unused.png", "--resume", "unused"]
+    arguments = ["--image", "unused.png", "--resume", "unused", "--max-faces", "5000"]
     if interval is not None:
         arguments.extend(["--decoder-eval-interval", str(interval)])
     generate_pixal3d.main(arguments)
     assert forwarded[forwarded.index("--decoder-eval-interval") + 1] == str(1 if interval is None else interval)
+    assert forwarded[forwarded.index("--max-faces") + 1] == "5000"
 
 
 @pytest.mark.parametrize("entrypoint", ["generate_pixal3d", "resume_pixal3d"])

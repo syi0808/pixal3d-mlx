@@ -318,6 +318,8 @@ def main(argv=None, runtime=None):
     parser.add_argument("--resolution", type=int, default=512)
     parser.add_argument("--max-tokens", type=int, default=49152)
     parser.add_argument("--target-faces", type=int, default=200_000)
+    parser.add_argument("--max-faces", type=int, default=0,
+                        help="Strict final triangle limit after mesh repair (0=disabled)")
     parser.add_argument("--no-rembg", action="store_true")
     parser.add_argument("--save-checkpoints", metavar="DIR",
                         help="Save intermediate results after each stage")
@@ -352,7 +354,7 @@ def main(argv=None, runtime=None):
                         help="Mixed FP16 compute is experimental; FP32 remains the stable default")
     args = parser.parse_args(argv)
     if min(args.feature_cache_mb, args.conditioning_cache_mb, args.naf_tile_rows, args.ffn_chunk_size,
-           args.decoder_eval_interval) < 0:
+           args.decoder_eval_interval, args.max_faces) < 0:
         parser.error("Cache and chunk sizes must be nonnegative")
 
     # Redirect --resume to the dedicated resume script
@@ -365,6 +367,7 @@ def main(argv=None, runtime=None):
                "--seed", str(args.seed),
                "--texture-size", str(args.texture_size),
                "--target-faces", str(args.target_faces),
+               "--max-faces", str(args.max_faces),
                "--memory-budget-gb", str(args.memory_budget_gb),
                "--model-cache-gb", str(args.model_cache_gb),
                "--feature-cache-mb", str(args.feature_cache_mb),
@@ -801,6 +804,9 @@ def _generate(args, runtime):
         no_cleanup=args.no_cleanup,
         keep_largest=args.keep_largest,
     )
+    if args.max_faces:
+        from trellmlx.mesh_budget import enforce_face_limit
+        vertices, faces = enforce_face_limit(vertices, faces, args.max_faces)
 
     if save_ckpts:
         # Save subdivision masks as list of arrays
@@ -955,6 +961,8 @@ def _generate(args, runtime):
     # UV unwrap
     t0 = time.perf_counter()
     uv_verts, uv_faces, uvs, vmapping = uv_unwrap(vertices, faces)
+    if args.max_faces and len(uv_faces) > args.max_faces:
+        raise RuntimeError("UV output exceeds the strict triangle budget")
     print(f"  UV unwrap: {len(uv_verts):,}V {len(uv_faces):,}F "
           f"({time.perf_counter()-t0:.1f}s)", flush=True)
 
