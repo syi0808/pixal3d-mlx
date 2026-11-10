@@ -1,0 +1,106 @@
+"""Opt-in Transformer execution experiments; production entrypoints do not import this."""
+
+from dataclasses import dataclass
+from functools import lru_cache
+
+import mlx.core as mx
+import mlx.nn as nn
+
+from .models.pixal3d_flow import ProjModulatedBlock
+from .models.sparse_structure_flow import FeedForward
+
+
+@dataclass(frozen=True)
+class TransformerExperiment:
+    ffn_chunk_size: int = 2048
+    eval_every: int = 2
+    async_ffn: bool = False
+    compiled_ffn: bool = False
+    compiled_pointwise: bool = False
+    cache_bytes: int = 128 * 1024 ** 2
+
+
+VARIANTS = {
+    "reference": TransformerExperiment(),
+    "async-ffn": TransformerExperiment(async_ffn=True),
+    "full-ffn": TransformerExperiment(ffn_chunk_size=0),
+    "full-ffn-eval1": TransformerExperiment(ffn_chunk_size=0, eval_every=1),
+    "compiled-ffn": TransformerExperiment(compiled_ffn=True),
+    "compiled-pointwise": TransformerExperiment(compiled_pointwise=True),
+    "compiled-both": TransformerExperiment(compiled_ffn=True, compiled_pointwise=True),
+    "cache-512": TransformerExperiment(cache_bytes=512 * 1024 ** 2),
+}
+
+
+@lru_cache(maxsize=1)
+def _compiled_ffn():
+    def forward(features, first_weight, first_bias, second_weight, second_bias):
+        hidden = nn.gelu_approx(mx.addmm(first_bias, features, first_weight.T))
+        return mx.addmm(second_bias, hidden, second_weight.T)
+    return mx.compile(forward)
+
+
+@lru_cache(maxsize=1)
+def _compiled_modulation():
+    def forward(features, scale, shift):
+        normalized = mx.fast.layer_norm(features.astype(mx.float32), weight=None, bias=None, eps=1e-6)
+        return normalized.astype(features.dtype) * (1 + scale) + shift
+    return mx.compile(forward)
+
+
+@lru_cache(maxsize=1)
+def _compiled_gated_residual():
+    return mx.compile(lambda features, hidden, gate: features + hidden * gate)
+
+
+class ResearchFeedForward(FeedForward):
+    def __init__(self, original, options):
+        nn.Module.__init__(self)
+        self.mlp_0 = original.mlp_0
+        self.mlp_2 = original.mlp_2
+        self.chunk_size = options.ffn_chunk_size
+        object.__setattr__(self, "options", options)
+
+    def _chunk(self, features):
+        if self.options.compiled_ffn:
+            return _compiled_ffn()(features, self.mlp_0.weight, self.mlp_0.bias, self.mlp_2.weight, self.mlp_2.bias)
+        return self.mlp_2(nn.gelu_approx(self.mlp_0(features)))
+
+    def __call__(self, features):
+        if not self.chunk_size or features.ndim != 2 or features.shape[0] <= self.chunk_size:
+            return self._chunk(features)
+        outputs = []
+        evaluate = mx.async_eval if self.options.async_ffn else mx.eval
+        for start in range(0, features.shape[0], self.chunk_size):
+            output = self._chunk(features[start:start + self.chunk_size])
+            evaluate(output)
+            outputs.append(output)
+        return mx.concatenate(outputs, axis=0)
+
+
+class ResearchBlock(ProjModulatedBlock):
+    def __init__(self, original):
+        nn.Module.__init__(self)
+        for name, value in original.items():
+            self[name] = value
+
+    def __call__(self, features, modulation, context, rope_phases=None):
+        shift_attn, scale_attn, gate_attn, shift_mlp, scale_mlp, gate_mlp = mx.split(
+            modulation + self.modulation, 6)
+        hidden = _compiled_modulation()(features, scale_attn, shift_attn)
+        hidden = self.self_attn(hidden, rope_phases=rope_phases)
+        features = _compiled_gated_residual()(features, hidden, gate_attn)
+        features = features + self.cross_attn(self.norm2(features), context)
+        hidden = _compiled_modulation()(features, scale_mlp, shift_mlp)
+        return _compiled_gated_residual()(features, self.mlp(hidden), gate_mlp)
+
+
+def configure_transformer(model, options):
+    if options.ffn_chunk_size < 0 or options.eval_every < 1 or options.cache_bytes < 0:
+        raise ValueError("Invalid Transformer experiment limits")
+    model.eval_every = options.eval_every
+    for index, block in enumerate(model.blocks):
+        block.mlp = ResearchFeedForward(block.mlp, options)
+        if options.compiled_pointwise:
+            model.blocks[index] = ResearchBlock(block)
+    return model
