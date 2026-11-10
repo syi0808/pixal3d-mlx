@@ -95,6 +95,12 @@ checkpoint; it is not a quality-equivalent comparison with reprocessing the
 original 1.34-million-triangle raw mesh. Its purpose is to demonstrate that a
 target is not an upper bound.
 
+A subsequent requested `--target-faces 20000` export **without `--max-faces`**
+uses the original raw geometry and finishes at 20,034 triangles. See
+[turnip20k-validation.md](turnip20k-validation.md) for the model, exact command,
+and measurements. The re-export CLI supports this soft-target-only route;
+the strict-cap feature remains available but is not used for that asset.
+
 The low-poly export primarily improves UV/baking cost, output size, and
 downstream rendering. It does not turn the 333 s full generation into a 3 s
 generation. Stored mesh/texture checkpoints do make additional LOD exports
