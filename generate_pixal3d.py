@@ -203,20 +203,36 @@ def extract_proj_features(image_path, dinov3_model, grid_resolution, image_size,
     if coords is not None:
         options["coords"] = coords
     if feature_cache is not None:
-        cache_key = (str(image_path), image_size, no_rembg, id(dinov3_model))
-        if cache_key not in feature_cache:
+        from trellmlx.runtime import Stage, StageGraph, image_fingerprint
+
+        model_key = getattr(dinov3_model, "_runtime_fingerprint", id(dinov3_model))
+        cache_key = (image_fingerprint(image_path), image_size, no_rembg, model_key)
+
+        def encode():
+            encoded = feature_cache.get(cache_key)
+            if encoded is not None:
+                return encoded
             encoded = extractor.encode_image(img_tensor)
-            mx.eval(encoded)
             feature_cache[cache_key] = encoded
-        options["backbone_features"] = feature_cache[cache_key]
-    z_global, z_proj = extractor(img_tensor, fov, dist, scale, **options)
+            return encoded
+
+        graph = StageGraph([
+            Stage("image_encoding", (), ("backbone",), encode),
+            Stage("active_projection", ("backbone",), ("global", "projection"),
+                  lambda encoded: extractor(img_tensor, fov, dist, scale, backbone_features=encoded, **options)),
+        ], outputs=("global", "projection"))
+        z_global, z_proj = graph.execute()
+    else:
+        z_global, z_proj = extractor(img_tensor, fov, dist, scale, **options)
     mx.eval(z_global, z_proj)
 
     cond = {'global': z_global, 'proj': z_proj}
-    neg_cond = {
+    from trellmlx.conditioning import ZeroConditioning
+
+    neg_cond = ZeroConditioning({
         'global': mx.zeros_like(z_global),
         'proj': mx.zeros_like(z_proj),
-    }
+    })
 
     return cond, neg_cond
 
@@ -224,7 +240,10 @@ def extract_proj_features(image_path, dinov3_model, grid_resolution, image_size,
 def cast_conditioning_to_dtype(cond, dtype):
     """Cast an MLX conditioning payload without changing its container shape."""
     if isinstance(cond, dict):
-        return {key: cast_conditioning_to_dtype(value, dtype) for key, value in cond.items()}
+        from trellmlx.conditioning import ZeroConditioning
+
+        result = {key: cast_conditioning_to_dtype(value, dtype) for key, value in cond.items()}
+        return ZeroConditioning(result) if isinstance(cond, ZeroConditioning) else result
     return cond.astype(dtype)
 
 
@@ -277,13 +296,17 @@ def index_proj_by_coords(cond, neg_cond, coords_4d, grid_resolution, target_dim=
         'global': neg_cond['global'],
         'proj': mx.zeros_like(z_proj_sparse),
     }
+    from trellmlx.conditioning import ZeroConditioning
+
+    if isinstance(neg_cond, ZeroConditioning):
+        sparse_neg_cond = ZeroConditioning(sparse_neg_cond)
 
     return sparse_cond, sparse_neg_cond
 
 
 # === Main ===
 
-def main():
+def main(argv=None, runtime=None):
     parser = argparse.ArgumentParser(description="Pixal3D on MLX: Image to 3D")
     parser.add_argument("--image", required=True, help="Input image path")
     parser.add_argument("--output", default="/tmp/pixal3d-mlx-mesh.glb")
@@ -292,7 +315,7 @@ def main():
                         help="Manual FOV in radians (default: MoGe auto-estimate)")
     parser.add_argument("--no-moge", action="store_true",
                         help="Skip MoGe camera estimation, use fixed default FOV (~49 deg)")
-    parser.add_argument("--resolution", type=int, default=1024)
+    parser.add_argument("--resolution", type=int, default=512)
     parser.add_argument("--max-tokens", type=int, default=49152)
     parser.add_argument("--target-faces", type=int, default=200_000)
     parser.add_argument("--no-rembg", action="store_true")
@@ -310,18 +333,51 @@ def main():
     parser.add_argument("--dense-conditioning", action="store_true",
                         help="Use the dense projection reference instead of active coordinates")
     parser.add_argument("--naf-backend", choices=["auto", "metal", "reference"], default="auto")
-    args = parser.parse_args()
+    parser.add_argument("--memory-budget-gb", type=float, default=10.0)
+    parser.add_argument("--model-cache-gb", type=float, default=2.0)
+    parser.add_argument("--feature-cache-mb", type=float, default=256.0)
+    parser.add_argument("--runtime-report")
+    parser.add_argument("--ffn-chunk-size", type=int, default=2048)
+    parser.add_argument("--conditioning-cache-mb", type=float, default=128.0)
+    parser.add_argument("--naf-tile-rows", type=int, default=128)
+    parser.add_argument("--naf-threads", type=int, choices=[64, 128, 256], default=128)
+    parser.add_argument("--compile-step", action="store_true")
+    parser.add_argument("--sparse-order", choices=["preserve", "morton"], default="morton")
+    parser.add_argument("--slat-precision", choices=["float32", "mixed"], default="float32",
+                        help="Experimental FP16 SLat compute; accumulations and sampling stay FP32")
+    parser.add_argument("--ss-precision", choices=["float32", "mixed"], default="float32",
+                        help="Mixed FP16 compute is experimental; FP32 remains the stable default")
+    args = parser.parse_args(argv)
+    if min(args.feature_cache_mb, args.conditioning_cache_mb, args.naf_tile_rows, args.ffn_chunk_size) < 0:
+        parser.error("Cache and chunk sizes must be nonnegative")
 
     # Redirect --resume to the dedicated resume script
     if args.resume:
-        import subprocess, sys
-        cmd = [sys.executable, "resume_pixal3d.py",
+        import resume_pixal3d
+        cmd = [
                "--image", args.image,
                "--ckpt", args.resume,
                "--output", args.output,
                "--seed", str(args.seed),
                "--texture-size", str(args.texture_size),
-               "--target-faces", str(args.target_faces)]
+               "--target-faces", str(args.target_faces),
+               "--memory-budget-gb", str(args.memory_budget_gb),
+               "--model-cache-gb", str(args.model_cache_gb),
+               "--feature-cache-mb", str(args.feature_cache_mb),
+               "--conditioning-cache-mb", str(args.conditioning_cache_mb),
+               "--ffn-chunk-size", str(args.ffn_chunk_size),
+               "--naf-backend", args.naf_backend,
+               "--naf-tile-rows", str(args.naf_tile_rows),
+               "--naf-threads", str(args.naf_threads),
+               "--sparse-order", args.sparse_order,
+               "--slat-precision", args.slat_precision,
+               "--quantize", str(args.quantize)]
+        if args.runtime_report:
+            cmd.extend(["--runtime-report", args.runtime_report])
+        if args.compile_step:
+            cmd.append("--compile-step")
+        if args.dense_conditioning:
+            cmd.append("--dense-conditioning")
         if args.no_rembg:
             cmd.append("--no-rembg")
         if args.no_cleanup:
@@ -331,8 +387,24 @@ def main():
         if args.fov > 0:
             cmd.extend(["--fov", str(args.fov)])
         print(f"Resuming via resume_pixal3d.py --ckpt {args.resume}", flush=True)
-        sys.exit(subprocess.call(cmd))
+        return resume_pixal3d.main(cmd, runtime=runtime)
 
+    from trellmlx.runtime import InferenceRuntime
+
+    if runtime is None:
+        with InferenceRuntime(memory_budget_bytes=int(args.memory_budget_gb * 1e9),
+                              model_cache_bytes=int(args.model_cache_gb * 1e9),
+                              feature_cache_bytes=int(args.feature_cache_mb * 1024 ** 2)) as owned_runtime:
+            with owned_runtime.job(args.runtime_report):
+                return _generate(args, owned_runtime)
+    with runtime.job(args.runtime_report):
+        return _generate(args, runtime)
+
+
+def _generate(args, runtime):
+    from trellmlx.runtime import checkpoint_fingerprint, image_fingerprint
+
+    runtime.advance("preprocess_and_camera")
     mx.random.seed(args.seed)
     t_total = time.perf_counter()
     mx.metal.reset_peak_memory()
@@ -348,7 +420,11 @@ def main():
         try:
             print("=== MoGe-2 Camera Estimation (MLX) ===", flush=True)
             from trellmlx.moge_camera import estimate_camera_params_mlx
-            camera_params = estimate_camera_params_mlx(cond_image)
+            camera_key = image_fingerprint(cond_image)
+            camera_params = runtime.camera.get(camera_key)
+            if camera_params is None:
+                camera_params = estimate_camera_params_mlx(cond_image)
+                runtime.camera[camera_key] = dict(camera_params)
         except Exception as e:
             print(f"  MoGe unavailable ({e}), falling back to default FOV.", flush=True)
             camera_params = get_default_camera_params()
@@ -389,24 +465,14 @@ def main():
             DINOV3_WEIGHTS = os.path.join(DINOV3_WEIGHTS, snapshots[0])
 
     dinov3 = DINOv3ViT()
-    num_loaded = load_dinov3_weights(dinov3, DINOV3_WEIGHTS)
-    print(f"  DINOv3 loaded ({num_loaded} arrays).", flush=True)
-
-    # === NAF upsampler (shared across stages that need it) ===
-    print("=== Loading NAF upsampler ===", flush=True)
-    from trellmlx.models.naf import NAF as NAFModel
-    from trellmlx.models.naf_loader import load_naf_weights
-
-    NAF_WEIGHTS = os.path.join(os.path.dirname(__file__), "weights", "naf_release.safetensors")
-    naf = NAFModel()
-    if hasattr(naf, "upsampler"):
-        naf.upsampler.backend = args.naf_backend
-    load_naf_weights(naf, NAF_WEIGHTS, verbose=False)
-    print("  NAF loaded (37 params, 2.7MB).", flush=True)
-    feature_cache = {}
+    dinov3 = runtime.load_model(("dinov3", checkpoint_fingerprint(DINOV3_WEIGHTS)),
+                                lambda: dinov3, lambda model: load_dinov3_weights(model, DINOV3_WEIGHTS))
+    print("  DINOv3 loaded.", flush=True)
+    feature_cache = runtime.features
 
     # === Stage 1: Sparse Structure (proj) ===
     print("\n=== Stage 1: Sparse Structure (proj) ===", flush=True)
+    runtime.advance("sparse_structure")
     from trellmlx.models.pixal3d_flow import Pixal3DSparseStructureFlowModel
     from trellmlx.models.sparse_structure_decoder import SparseStructureDecoder
 
@@ -425,7 +491,8 @@ def main():
         context_channels=1024, proj_in_channels=1024,
         resolution=16,
     )
-    load_weights(ss_flow, HF_PIXAL3D + "ss_flow_img_dit_1_3B_64_bf16.safetensors", verbose=False)
+    load_weights(ss_flow, HF_PIXAL3D + "ss_flow_img_dit_1_3B_64_bf16.safetensors", verbose=False,
+                 streaming=True, target_dtype=mx.float32 if args.ss_precision == "float32" else mx.float16)
     if args.quantize:
         from trellmlx.quantize import quantize_model
         quantize_model(ss_flow, bits=args.quantize)
@@ -433,18 +500,23 @@ def main():
     # bf16 precision noise gets amplified ~5x per Euler step through the
     # std ratio in CFG rescale, producing catastrophic divergence after
     # 4 steps. fp32 reduces this. Cost: ~2.4GB extra for ~20s.
-    ss_flow.apply(lambda x: x.astype(mx.float32) if mx.issubdtype(x.dtype, mx.floating) else x)
+    ss_dtype = mx.float32 if args.ss_precision == "float32" else mx.float16
+    ss_flow.apply(lambda x: x.astype(ss_dtype) if mx.issubdtype(x.dtype, mx.floating) else x)
+    if args.ss_precision == "mixed":
+        ss_flow.compute_dtype = mx.float16
 
     # SS sampler params from Pixal3D pipeline.json
     SS_SAMPLER = dict(steps=12, guidance_strength=7.5, guidance_rescale=0.7,
                       guidance_interval=(0.6, 1.0), rescale_t=5.0)
 
-    noise = mx.random.normal((1, 8, 16, 16, 16)).astype(mx.float32)
+    noise = mx.random.normal((1, 8, 16, 16, 16), key=mx.random.key(args.seed)).astype(mx.float32)
     t0 = time.perf_counter()
     # Cast conditioning to fp32 to match the fp32 sparse structure model
     z_s = flow_euler_sample(ss_flow, noise,
-                            cast_conditioning_to_dtype(ss_cond, mx.float32),
-                            cast_conditioning_to_dtype(ss_neg_cond, mx.float32),
+                            cast_conditioning_to_dtype(ss_cond, ss_dtype),
+                            cast_conditioning_to_dtype(ss_neg_cond, ss_dtype),
+                            conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
+                            ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
                             verbose=False, **SS_SAMPLER)
     mx.eval(z_s)
     print(f"  Sampled: {time.perf_counter()-t0:.1f}s", flush=True)
@@ -460,7 +532,8 @@ def main():
         ss_dec_ckpt = HF_LARGE + "ss_dec_conv3d_16l8_fp16.safetensors"
 
     ss_dec = SparseStructureDecoder()
-    load_weights(ss_dec, ss_dec_ckpt, verbose=False)
+    ss_dec = runtime.load_model(("ss_decoder", checkpoint_fingerprint(ss_dec_ckpt)), lambda: ss_dec,
+                                lambda model: load_weights(model, ss_dec_ckpt, verbose=False, streaming=True))
 
     logits = ss_dec(z_s.astype(mx.float32))
     mx.eval(logits)
@@ -486,6 +559,19 @@ def main():
         print(f"\n  SS-only mode. {len(lr_coords)} voxels found.")
         print(f"  Total: {time.perf_counter()-t_total:.1f}s")
         return
+
+    runtime.advance("lr_conditioning_and_shape")
+    from trellmlx.models.naf import NAF as NAFModel
+    from trellmlx.models.naf_loader import load_naf_weights
+
+    naf_path = os.path.join(os.path.dirname(__file__), "weights", "naf_release.safetensors")
+    naf = NAFModel()
+    naf = runtime.load_model(("naf", checkpoint_fingerprint(naf_path)), lambda: naf,
+                             lambda model: load_naf_weights(model, naf_path, verbose=False))
+    if hasattr(naf, "upsampler"):
+        naf.upsampler.backend = args.naf_backend
+        naf.upsampler.threadgroup_size = args.naf_threads
+        naf.encoder_tile_rows = args.naf_tile_rows
 
     # === Stage 2a: LR Shape Latent (proj, 512) ===
     print("\n=== Stage 2a: LR Shape Latent (proj, 512) ===", flush=True)
@@ -526,15 +612,19 @@ def main():
         num_blocks=30, mlp_hidden=8192,
         context_channels=1024, proj_in_channels=2048,
     )
-    load_weights(lr_slat_flow, HF_PIXAL3D + "slat_flow_img2shape_dit_1_3B_512_bf16.safetensors", verbose=False)
+    load_weights(lr_slat_flow, HF_PIXAL3D + "slat_flow_img2shape_dit_1_3B_512_bf16.safetensors", verbose=False, streaming=True)
+    if args.slat_precision == "mixed":
+        lr_slat_flow.compute_dtype = mx.float16
     if args.quantize:
         quantize_model(lr_slat_flow, bits=args.quantize)
 
-    lr_noise = mx.random.normal((N_lr, 32))
+    lr_noise = mx.random.normal((N_lr, 32), key=mx.random.key(args.seed + 1))
     t0 = time.perf_counter()
     lr_slat = flow_euler_sample(
         lr_slat_flow, lr_noise, shape_lr_cond_sparse, shape_lr_neg_cond_sparse,
         verbose=False, coords=mx.array(lr_coords),
+        conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
+        ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
         **SHAPE_SAMPLER,
     )
     mx.eval(lr_slat)
@@ -552,8 +642,10 @@ def main():
     print("\n=== Stage 2b: Upsample → HR coordinates ===", flush=True)
 
     shape_dec_ckpt = HF_PIXAL3D + "shape_dec_next_dc_f16c32_fp16.safetensors"
-    decoder = SLatDecoder(out_channels=7, pred_subdiv=True)
-    load_weights(decoder, shape_dec_ckpt, verbose=False)
+    decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order)
+    runtime.advance("coordinate_subdivision")
+    decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt)), lambda: decoder,
+                                 lambda model: load_weights(model, shape_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()
     hr_coords_raw = decoder.upsample(lr_slat, mx.array(lr_coords_4d), upsample_times=4)
@@ -582,6 +674,7 @@ def main():
 
     # === Stage 2c: HR Shape Latent (proj, 1024) ===
     print("\n=== Stage 2c: HR Shape Latent (proj, 1024) ===", flush=True)
+    runtime.advance("hr_conditioning_and_shape")
 
     # Projection and sparse coordinates must describe the same physical grid.
     # Upstream overrides the projection grid with actual_hr_resolution // 16.
@@ -602,7 +695,6 @@ def main():
         preindexed=not args.dense_conditioning,
     )
     shared_hr_conditioning = (shape_hr_cond_sparse, shape_hr_neg_cond_sparse)
-    feature_cache.clear()
     del dinov3, naf
     gc.collect()
     mx.clear_cache()
@@ -613,15 +705,19 @@ def main():
         num_blocks=30, mlp_hidden=8192,
         context_channels=1024, proj_in_channels=2048,
     )
-    load_weights(hr_slat_flow, HF_PIXAL3D + "slat_flow_img2shape_dit_1_3B_1024_bf16.safetensors", verbose=False)
+    load_weights(hr_slat_flow, HF_PIXAL3D + "slat_flow_img2shape_dit_1_3B_1024_bf16.safetensors", verbose=False, streaming=True)
+    if args.slat_precision == "mixed":
+        hr_slat_flow.compute_dtype = mx.float16
     if args.quantize:
         quantize_model(hr_slat_flow, bits=args.quantize)
 
-    hr_noise = mx.random.normal((num_tokens, 32))
+    hr_noise = mx.random.normal((num_tokens, 32), key=mx.random.key(args.seed + 2))
     t0 = time.perf_counter()
     hr_slat = flow_euler_sample(
         hr_slat_flow, hr_noise, shape_hr_cond_sparse, shape_hr_neg_cond_sparse,
         verbose=False, coords=mx.array(hr_coords_3d),
+        conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
+        ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
         **SHAPE_SAMPLER,
     )
     mx.eval(hr_slat)
@@ -650,9 +746,11 @@ def main():
 
     # === Stage 3: Shape Decode ===
     print("\n=== Stage 3: Decode Shape ===", flush=True)
+    runtime.advance("shape_decode_and_mesh")
 
-    shape_decoder = SLatDecoder(out_channels=7, pred_subdiv=True)
-    load_weights(shape_decoder, shape_dec_ckpt, verbose=False)
+    shape_decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order)
+    shape_decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt)), lambda: shape_decoder,
+                                       lambda model: load_weights(model, shape_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()
     dec_out, dec_coords, shape_subs = shape_decoder(
@@ -702,6 +800,7 @@ def main():
 
     # === Stage 4: Texture (proj, 1024) ===
     print("\n=== Stage 4: Texture SLat (proj, 1024) ===", flush=True)
+    runtime.advance("texture_sampling")
 
     TEX_SAMPLER = dict(steps=12, guidance_strength=1.0, guidance_rescale=0.0,
                        guidance_interval=(0.6, 0.9), rescale_t=3.0)
@@ -726,7 +825,9 @@ def main():
         num_blocks=30, mlp_hidden=8192,
         context_channels=1024, proj_in_channels=2048,
     )
-    load_weights(tex_flow, HF_PIXAL3D + "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors", verbose=False)
+    load_weights(tex_flow, HF_PIXAL3D + "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors", verbose=False, streaming=True)
+    if args.slat_precision == "mixed":
+        tex_flow.compute_dtype = mx.float16
     if args.quantize:
         quantize_model(tex_flow, bits=args.quantize)
 
@@ -734,12 +835,14 @@ def main():
     shape_cond = _normalize_slat(hr_slat)
     mx.eval(shape_cond)
 
-    tex_noise = mx.random.normal((num_tokens, 32))
+    tex_noise = mx.random.normal((num_tokens, 32), key=mx.random.key(args.seed + 3))
     t0 = time.perf_counter()
     tex_slat = flow_euler_sample(
         tex_flow, tex_noise, tex_cond_sparse, tex_neg_cond_sparse,
         verbose=False, coords=mx.array(hr_coords_3d),
         concat_cond=shape_cond,
+        conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
+        ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
         **TEX_SAMPLER,
     )
     mx.eval(tex_slat)
@@ -779,8 +882,10 @@ def main():
         )
         tex_dec_ckpt = HF_4B + "tex_dec_next_dc_f16c32_fp16.safetensors"
 
-    tex_decoder = SLatDecoder(out_channels=6, pred_subdiv=False)
-    load_weights(tex_decoder, tex_dec_ckpt, verbose=False)
+    tex_decoder = SLatDecoder(out_channels=6, pred_subdiv=False, spatial_order=args.sparse_order)
+    runtime.advance("texture_decode_and_export")
+    tex_decoder = runtime.load_model(("texture_decoder", checkpoint_fingerprint(tex_dec_ckpt)), lambda: tex_decoder,
+                                     lambda model: load_weights(model, tex_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()
     tex_out, tex_coords = tex_decoder(

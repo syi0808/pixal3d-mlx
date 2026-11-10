@@ -66,6 +66,10 @@ class BatchRunOptions:
     repo_root: Path | str = Path(".")
     report_path: Path | str | None = None
     python_executable: str = sys.executable
+    engine: str = "subprocess"
+    memory_budget_gb: float = 10.0
+    model_cache_gb: float = 2.0
+    feature_cache_mb: float = 256.0
 
 
 @dataclass(frozen=True)
@@ -190,6 +194,12 @@ def run_batch(
 
     if options.max_concurrent < 1:
         raise ValueError("max_concurrent must be >= 1")
+    if options.engine == "pixal3d-persistent":
+        from .persistent_inference import run_persistent_batch
+
+        return run_persistent_batch(jobs, options)
+    if options.engine != "subprocess":
+        raise ValueError(f"Unknown batch engine: {options.engine}")
 
     repo_root = Path(options.repo_root)
     effective_concurrency = min(options.max_concurrent, len(jobs)) if jobs else 0
@@ -314,6 +324,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--quantize", type=int, default=0, choices=[0, 4, 8])
     parser.add_argument("--no-rembg", action="store_true")
     parser.add_argument("--no-cleanup", action="store_true")
+    parser.add_argument("--engine", choices=["subprocess", "pixal3d-persistent"], default="subprocess")
+    parser.add_argument("--memory-budget-gb", type=float, default=10.0)
+    parser.add_argument("--model-cache-gb", type=float, default=2.0)
+    parser.add_argument("--feature-cache-mb", type=float, default=256.0)
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     request = BatchRequest(
@@ -338,6 +352,10 @@ def main(argv: Iterable[str] | None = None) -> int:
             repo_root=args.repo_root,
             report_path=args.report,
             python_executable=args.python,
+            engine=args.engine,
+            memory_budget_gb=args.memory_budget_gb,
+            model_cache_gb=args.model_cache_gb,
+            feature_cache_mb=args.feature_cache_mb,
         ),
     )
 

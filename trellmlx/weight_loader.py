@@ -62,7 +62,8 @@ def _should_permute_conv(key: str, shape: tuple) -> bool:
     return False
 
 
-def load_weights(model: nn.Module, checkpoint_path: str, verbose: bool = True):
+def load_weights(model: nn.Module, checkpoint_path: str, verbose: bool = True,
+                 streaming: bool = False, target_dtype=None):
     """Load TRELLIS.2 safetensors weights into an MLX model.
 
     Args:
@@ -73,6 +74,8 @@ def load_weights(model: nn.Module, checkpoint_path: str, verbose: bool = True):
     Returns:
         List of checkpoint keys that were not loaded (missing in model).
     """
+    if streaming:
+        return _load_streaming(model, checkpoint_path, verbose, target_dtype)
     # Get the model's parameter tree
     model_keys = set(k for k, _ in mlx.utils.tree_flatten(model.parameters()))
 
@@ -154,4 +157,36 @@ def load_weights(model: nn.Module, checkpoint_path: str, verbose: bool = True):
         if unloaded:
             print(f"  Skipped {len(unloaded)} checkpoint keys")
 
+    return unloaded
+
+
+def _load_streaming(model, checkpoint_path, verbose, target_dtype):
+    expected = dict(mlx.utils.tree_flatten(model.parameters()))
+    loaded = set()
+    unloaded = []
+    with safe_open(checkpoint_path, framework="mlx") as checkpoint:
+        for checkpoint_key in checkpoint.keys():
+            key = _remap_key(checkpoint_key)
+            if key not in expected:
+                unloaded.append(checkpoint_key)
+                continue
+            tensor = checkpoint.get_tensor(checkpoint_key)
+            if _should_transpose(key, tensor.shape):
+                tensor = tensor.T
+            if _should_permute_conv(key, tensor.shape):
+                tensor = tensor.transpose(0, 2, 3, 4, 1)
+            if tensor.dtype in (mx.float32, mx.bfloat16):
+                tensor = tensor.astype(mx.float16)
+            if target_dtype is not None and mx.issubdtype(tensor.dtype, mx.floating):
+                tensor = tensor.astype(target_dtype)
+            if tensor.shape != expected[key].shape:
+                raise ValueError(f"Shape mismatch for {key}: {tensor.shape} != {expected[key].shape}")
+            mx.eval(tensor)
+            model.load_weights([(key, tensor)], strict=False)
+            del expected[key]
+            loaded.add(key)
+    if expected:
+        raise ValueError(f"Missing model weights: {sorted(expected)}")
+    if verbose:
+        print(f"  Streamed {len(loaded)} parameters; skipped {len(unloaded)} checkpoint keys")
     return unloaded
