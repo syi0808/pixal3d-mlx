@@ -203,14 +203,14 @@ def run(arguments):
                       dict(guidance_strength=1.0, guidance_rescale=0.0, rescale_t=3.0) if arguments.stage == "texture" else
                       dict(guidance_strength=7.5, guidance_rescale=0.5, rescale_t=3.0))
         started = time.perf_counter()
-        output = flow_euler_sample(model, noise, cond, negative, steps=12, verbose=False,
+        output = flow_euler_sample(model, noise, cond, negative, steps=arguments.steps, verbose=False,
                                    guidance_interval=(0.6, 0.9) if arguments.stage == "texture" else (0.6, 1.0),
                                    conditioning_cache_bytes=options.cache_bytes, ffn_chunk_size=options.ffn_chunk_size,
                                    **parameters, **kwargs)
         mx.eval(output)
         mx.synchronize()
         elapsed = time.perf_counter() - started
-        timing_info = {"sampling_seconds": elapsed, "steps": 12, "parameters": parameters}
+        timing_info = {"sampling_seconds": elapsed, "steps": arguments.steps, "parameters": parameters}
     peak = mx.get_peak_memory()
     host = np.array(output)
     report = {"stage": arguments.stage, "variant": arguments.variant, "mode": arguments.mode,
@@ -258,11 +258,12 @@ def main():
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--save-latent", type=Path)
     parser.add_argument("--repeats", type=int, default=2)
+    parser.add_argument("--steps", type=int, default=12, help="Research only; changing steps changes the sampling algorithm")
     arguments = parser.parse_args()
     if arguments.inputs is None:
         arguments.inputs = Path("outputs/runtime/sampling-investigation") / (arguments.stage + "-inputs.npz")
-    if arguments.repeats < 1:
-        parser.error("Screen repeats must be positive")
+    if arguments.repeats < 1 or arguments.steps < 1:
+        parser.error("Screen repeats and sampling steps must be positive")
     if arguments.mode == "profile" and arguments.stage != "ss":
         parser.error("Component profiling currently uses the dense SS block")
     if arguments.mode != "prepare" and (arguments.report.exists() or arguments.save_latent and arguments.save_latent.exists()):
