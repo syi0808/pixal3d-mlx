@@ -60,7 +60,18 @@ class SparseChannel2Spatial:
     """
 
     @staticmethod
-    def upsample(feats: mx.array, coords: mx.array, subdiv_mask: mx.array) -> tuple:
+    def prepare(coords: mx.array, subdiv_mask: mx.array) -> tuple:
+        coordinates = np.asarray(coords)
+        mask = np.asarray(subdiv_mask)
+        parents, children = np.nonzero(mask)
+        offsets = np.column_stack((children % 2, (children // 2) % 2, children // 4))
+        new_coordinates = coordinates[parents].copy()
+        new_coordinates[:, 1:] = new_coordinates[:, 1:] * 2 + offsets
+        return mx.array((parents * 8 + children).astype(np.int32)), mx.array(new_coordinates.astype(np.int32))
+
+    @staticmethod
+    def upsample(feats: mx.array, coords: mx.array, subdiv_mask: mx.array,
+                 selection: tuple = None) -> tuple:
         """
         Args:
             feats: [N, C*8] features
@@ -71,43 +82,11 @@ class SparseChannel2Spatial:
             new_feats: [N', C] upsampled features
             new_coords: [N', 4] upsampled coordinates
         """
-        N = feats.shape[0]
-        C = feats.shape[1] // 8
-
-        # Convert to numpy for coordinate manipulation
-        coords_np = np.array(coords)
-        subdiv_np = np.array(subdiv_mask)
-        feats_np = np.array(feats)
-
-        new_feats_list = []
-        new_coords_list = []
-
-        # Reshape features: [N, C*8] → [N, 8, C]
-        feats_reshaped = feats_np.reshape(N, 8, C)
-
-        for i in range(N):
-            for child in range(8):
-                if subdiv_np[i, child]:
-                    # Compute child coordinate offset (little-endian: z=bit0, y=bit1, x=bit2)
-                    dz = child % 2
-                    dy = (child // 2) % 2
-                    dx = child // 4
-
-                    new_coord = coords_np[i].copy()
-                    new_coord[1] = new_coord[1] * 2 + dz
-                    new_coord[2] = new_coord[2] * 2 + dy
-                    new_coord[3] = new_coord[3] * 2 + dx
-
-                    new_coords_list.append(new_coord)
-                    new_feats_list.append(feats_reshaped[i, child])
-
-        if len(new_feats_list) == 0:
-            return mx.zeros((0, C)), mx.zeros((0, 4), dtype=mx.int32)
-
-        new_feats = mx.array(np.stack(new_feats_list))
-        new_coords = mx.array(np.stack(new_coords_list).astype(np.int32))
-
-        return new_feats, new_coords
+        if feats.shape[1] % 8:
+            raise ValueError("Subdivision features must have a multiple of eight channels")
+        indices, new_coordinates = selection if selection is not None else SparseChannel2Spatial.prepare(coords, subdiv_mask)
+        channels = feats.shape[1] // 8
+        return feats.reshape(-1, channels)[indices], new_coordinates
 
 
 class SparseResBlockC2S3d(nn.Module):
@@ -127,7 +106,7 @@ class SparseResBlockC2S3d(nn.Module):
             self.to_subdiv = nn.Linear(channels, 8)
 
     def __call__(self, feats: mx.array, coords: mx.array, neighbor_map: tuple,
-                 subdiv: mx.array = None) -> tuple:
+                 subdiv: mx.array = None, return_neighbor_map: bool = False) -> tuple:
         """
         Args:
             subdiv: [N, 8] external subdivision mask (used when pred_subdiv=False).
@@ -154,15 +133,18 @@ class SparseResBlockC2S3d(nn.Module):
         h = self.conv1(h, neighbor_map)  # [N, out_channels * 8]
 
         # Channel to spatial upsample (also upsample skip path)
-        new_h, new_coords = SparseChannel2Spatial.upsample(h, coords, subdiv_mask)
+        selection = SparseChannel2Spatial.prepare(coords, subdiv_mask)
+        new_h, new_coords = SparseChannel2Spatial.upsample(h, coords, subdiv_mask, selection=selection)
 
         if new_h.shape[0] == 0:
+            if return_neighbor_map:
+                return new_h, new_coords, subdiv_logits, build_neighbor_map(new_coords)
             return new_h, new_coords, subdiv_logits
 
         # Skip connection: upsample original features through Channel2Spatial
         # Each child k gets channel slice [k*C//8 : (k+1)*C//8] from the parent,
         # then repeat-interleaved to match out_channels.
-        skip_h, _ = SparseChannel2Spatial.upsample(feats, coords, subdiv_mask)
+        skip_h, _ = SparseChannel2Spatial.upsample(feats, coords, subdiv_mask, selection=selection)
         # skip_h: [N', channels//8] — each child has its own 1/8th slice
         channels_per_child = self.channels // 8
         repeat_factor = self.out_channels // channels_per_child
@@ -182,6 +164,8 @@ class SparseResBlockC2S3d(nn.Module):
         # Add skip
         new_feats = new_h + skip_feats
 
+        if return_neighbor_map:
+            return new_feats, new_coords, subdiv_logits, new_nmap
         return new_feats, new_coords, subdiv_logits
 
 
@@ -246,6 +230,7 @@ class SLatDecoder(nn.Module):
         """
         upsample_count = 0
         subs = [] if return_subs else None
+        nmap = build_neighbor_map(coords)
         for level_idx, level_blocks in enumerate(self.blocks):
             if stop_after is not None and upsample_count >= stop_after:
                 if return_subs:
@@ -254,8 +239,6 @@ class SLatDecoder(nn.Module):
             if not level_blocks:
                 continue
 
-            nmap = build_neighbor_map(coords)
-
             for block in level_blocks:
                 if isinstance(block, SparseConvNeXtBlock3d):
                     feats = block(feats, nmap)
@@ -263,7 +246,8 @@ class SLatDecoder(nn.Module):
                 elif isinstance(block, SparseResBlockC2S3d):
                     # Pass guide subdivision if available (texture decoder)
                     guide = guide_subs[upsample_count] if guide_subs is not None else None
-                    feats, coords, sub_logits = block(feats, coords, nmap, subdiv=guide)
+                    feats, coords, sub_logits, nmap = block(
+                        feats, coords, nmap, subdiv=guide, return_neighbor_map=True)
                     if return_subs and sub_logits is not None:
                         subs.append(sub_logits)
                     upsample_count += 1

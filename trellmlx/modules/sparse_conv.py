@@ -12,13 +12,25 @@ import mlx.nn as nn
 import numpy as np
 
 
+class NeighborMap(tuple):
+    def __new__(cls, source_indices, target_indices, kernel_indices, counts):
+        instance = super().__new__(cls, (source_indices, target_indices, kernel_indices))
+        offset = 0
+        groups = []
+        for count in counts:
+            groups.append((source_indices[offset:offset + count], target_indices[offset:offset + count]))
+            offset += count
+        instance.groups = tuple(groups)
+        return instance
+
+
 def build_neighbor_map(coords: mx.array, kernel_size: int = 3) -> tuple:
     """Build source/target index pairs for sparse convolution.
 
     For each active voxel, find which of its 3³=27 neighbors are also active.
     Returns (src_indices, tgt_indices, kernel_indices) as MLX arrays.
 
-    Uses packed int64 dict lookup (same approach as our mesh extraction).
+    Uses sorted packed uint64 coordinates with vectorized neighbor searches.
 
     Args:
         coords: [N, 4] as (batch_idx, z, y, x), int
@@ -29,53 +41,55 @@ def build_neighbor_map(coords: mx.array, kernel_size: int = 3) -> tuple:
         tgt_idx: [E] target voxel indices
         k_idx: [E] kernel position indices (0..26 for 3x3x3)
     """
-    coords_np = np.array(coords)
-    N = len(coords_np)
-    K = kernel_size
-    half = K // 2
+    coordinates = np.asarray(coords)
+    if coordinates.ndim != 2 or coordinates.shape[1] != 4:
+        raise ValueError("Sparse coordinates must have shape [N, 4]")
+    if kernel_size <= 0 or kernel_size % 2 == 0:
+        raise ValueError("Sparse kernel size must be a positive odd integer")
+    if np.any(coordinates < 0) or np.any(coordinates > 65535):
+        raise ValueError("Sparse coordinates must fit unsigned 16-bit fields")
+    coordinates = coordinates.astype(np.int64, copy=False)
+    shifts = np.array([48, 32, 16, 0], dtype=np.uint64)
 
-    # Build spatial hash: packed int64 → voxel index
-    packed = (
-        coords_np[:, 0].astype(np.int64) << 48 |
-        coords_np[:, 1].astype(np.int64) << 32 |
-        coords_np[:, 2].astype(np.int64) << 16 |
-        coords_np[:, 3].astype(np.int64)
-    )
-    coord_to_idx = {}
-    for i in range(N):
-        coord_to_idx[packed[i]] = i
+    def pack(values):
+        return np.bitwise_or.reduce(values.astype(np.uint64) << shifts, axis=1)
 
-    src_list = []
-    tgt_list = []
-    k_list = []
-
-    for kz in range(K):
-        for ky in range(K):
-            for kx in range(K):
-                oz = kz - half
-                oy = ky - half
-                ox = kx - half
-                k_idx = kz * K * K + ky * K + kx
-
-                # Vectorized: compute all neighbor coords at once
-                neighbor_packed = (
-                    coords_np[:, 0].astype(np.int64) << 48 |
-                    (coords_np[:, 1] + oz).astype(np.int64) << 32 |
-                    (coords_np[:, 2] + oy).astype(np.int64) << 16 |
-                    (coords_np[:, 3] + ox).astype(np.int64)
-                )
-
-                for i in range(N):
-                    j = coord_to_idx.get(neighbor_packed[i])
-                    if j is not None:
-                        src_list.append(j)
-                        tgt_list.append(i)
-                        k_list.append(k_idx)
-
-    return (
-        mx.array(np.array(src_list, dtype=np.int32)),
-        mx.array(np.array(tgt_list, dtype=np.int32)),
-        mx.array(np.array(k_list, dtype=np.int32)),
+    packed = pack(coordinates)
+    order = np.argsort(packed, kind="stable")
+    sorted_keys = packed[order]
+    if np.any(sorted_keys[1:] == sorted_keys[:-1]):
+        raise ValueError("Sparse coordinates must be unique")
+    source_groups = []
+    target_groups = []
+    kernel_groups = []
+    counts = []
+    half = kernel_size // 2
+    for kernel_index, offset in enumerate(np.ndindex((kernel_size,) * 3)):
+        offsets = tuple(value - half for value in offset)
+        in_bounds = np.ones(len(coordinates), dtype=bool)
+        for axis, displacement in enumerate(offsets, start=1):
+            if displacement < 0:
+                in_bounds &= coordinates[:, axis] >= -displacement
+            elif displacement > 0:
+                in_bounds &= coordinates[:, axis] <= 65535 - displacement
+        packed_offset = sum(displacement * (1 << shift)
+                            for displacement, shift in zip(offsets, (32, 16, 0)))
+        neighbor_keys = packed + np.uint64(packed_offset % (1 << 64))
+        positions = np.searchsorted(sorted_keys, neighbor_keys)
+        present = in_bounds & (positions < len(sorted_keys))
+        if len(sorted_keys):
+            present &= sorted_keys[np.minimum(positions, len(sorted_keys) - 1)] == neighbor_keys
+        targets = np.flatnonzero(present).astype(np.int32)
+        sources = order[positions[present]].astype(np.int32)
+        source_groups.append(sources)
+        target_groups.append(targets)
+        kernel_groups.append(np.full(len(targets), kernel_index, dtype=np.int32))
+        counts.append(len(targets))
+    return NeighborMap(
+        mx.array(np.concatenate(source_groups)),
+        mx.array(np.concatenate(target_groups)),
+        mx.array(np.concatenate(kernel_groups)),
+        counts,
     )
 
 
@@ -121,16 +135,17 @@ class SparseConv3d(nn.Module):
         # and avoid scatter_add issues. 27 positions for 3x3x3.
         out = mx.zeros((N, Co))
 
-        for k in range(K_total):
-            # Find edges for this kernel position (on CPU to avoid Metal events)
-            k_mask_np = np.array(k_idx) == k
-            if not k_mask_np.any():
-                continue
-            s_np = np.array(src_idx)[k_mask_np]
-            t_np = np.array(tgt_idx)[k_mask_np]
-
-            src_f = feats[mx.array(s_np)]     # [E_k, Ci]
-            edge_out = src_f @ w[k]            # [E_k, Co]
-            out = out.at[mx.array(t_np)].add(edge_out)
+        if isinstance(neighbor_map, NeighborMap):
+            groups = neighbor_map.groups
+        else:
+            sources = np.asarray(src_idx)
+            targets = np.asarray(tgt_idx)
+            kernels = np.asarray(k_idx)
+            groups = tuple((mx.array(sources[kernels == index]), mx.array(targets[kernels == index]))
+                           for index in range(K_total))
+        for kernel_index, (sources, targets) in enumerate(groups):
+            if sources.size:
+                edge_out = feats[sources] @ w[kernel_index]
+                out = out.at[targets].add(edge_out)
 
         return out + self.bias
