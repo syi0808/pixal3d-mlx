@@ -112,6 +112,11 @@ def decode_structure(latent, checkpoints):
 
 
 def run(arguments):
+    provenance = {"revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+                  "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
+                  "source_sha256": {name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
+                                    for name in ("scripts/investigate_sampling.py", "trellmlx/transformer_experiments.py",
+                                                 "trellmlx/samplers.py", "trellmlx/models/pixal3d_flow.py")}}
     options = VARIANTS[arguments.variant]
     metadata = json.loads(arguments.inputs.with_suffix(".json").read_text())
     if metadata["stage"] != arguments.stage:
@@ -171,8 +176,7 @@ def run(arguments):
               "output_sha256": hashlib.sha256(np.ascontiguousarray(host)).hexdigest(),
               "inputs_sha256": hashlib.sha256(arguments.inputs.read_bytes()).hexdigest(),
               "mlx_version": mx.__version__, "device": mx.device_info(),
-              "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-              "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())}
+              **provenance}
     if arguments.reference:
         with np.load(arguments.reference) as reference:
             report["comparison_to_reference"] = errors(host, reference["latent"])
