@@ -64,9 +64,9 @@ def main(argv=None, runtime=None):
         with InferenceRuntime(memory_budget_bytes=int(args.memory_budget_gb * 1e9),
                               model_cache_bytes=int(args.model_cache_gb * 1e9),
                               feature_cache_bytes=int(args.feature_cache_mb * 1024 ** 2)) as owned_runtime:
-            with owned_runtime.job(args.runtime_report):
+            with owned_runtime.job(args.runtime_report, metadata=vars(args)):
                 return _resume(args, owned_runtime)
-    with runtime.job(args.runtime_report):
+    with runtime.job(args.runtime_report, metadata=vars(args)):
         return _resume(args, runtime)
 
 
@@ -217,7 +217,9 @@ def _resume(args, runtime):
         num_blocks=30, mlp_hidden=8192,
         context_channels=1024, proj_in_channels=2048,
     )
-    load_weights(tex_flow, HF_PIXAL3D + "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors", verbose=False, streaming=True)
+    tex_flow = runtime.load_model("texture_flow", lambda: tex_flow,
+                                  lambda model: load_weights(model, HF_PIXAL3D + "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors",
+                                                             verbose=False, streaming=True), retain=False)
     if args.quantize:
         from trellmlx.quantize import quantize_model
 

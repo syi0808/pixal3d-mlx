@@ -180,6 +180,7 @@ class InferenceRuntime:
         self.model_loads = 0
         self.closed = False
         self.owns_runtime_lock = False
+        self.job_metadata = {}
 
     def __enter__(self):
         if self.closed or self.previous_limits is not None:
@@ -203,13 +204,14 @@ class InferenceRuntime:
         self.close()
 
     @contextmanager
-    def job(self, report_path=None):
+    def job(self, report_path=None, metadata=None):
         with self.lock:
             if self.closed or self.previous_limits is None:
                 raise RuntimeError("Enter the runtime before submitting jobs")
             self.records = []
             self.last_stage = None
             self.stage_started = None
+            self.job_metadata = dict(metadata or {})
             mx.reset_peak_memory()
             status = "failed"
             try:
@@ -274,6 +276,8 @@ class InferenceRuntime:
     def report(self, status="complete"):
         return {
             "schema": "pixal3d.runtime.v1", "status": status,
+            "mlx_version": mx.__version__, "device": mx.device_info(),
+            "job": dict(self.job_metadata),
             "memory_budget_bytes": self.memory_budget_bytes,
             "peak_mlx_bytes": mx.get_peak_memory(), "stages": list(self.records),
             "model_loads": self.model_loads, "model_cache_hits": self.models.hits,

@@ -44,6 +44,9 @@ def run_persistent_batch(jobs, options):
             arguments = ["--image", str(image), "--seed", str(job.seed), "--output", str(output),
                          "--resolution", str(job.resolution), "--max-tokens", str(job.max_tokens),
                          "--target-faces", str(job.target_faces), "--quantize", str(job.quantize),
+                         "--memory-budget-gb", str(options.memory_budget_gb),
+                         "--model-cache-gb", str(options.model_cache_gb),
+                         "--feature-cache-mb", str(options.feature_cache_mb),
                          "--runtime-report", str(output.with_suffix(".runtime.json"))]
             if job.compile:
                 arguments.append("--compile-step")

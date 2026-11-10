@@ -395,9 +395,9 @@ def main(argv=None, runtime=None):
         with InferenceRuntime(memory_budget_bytes=int(args.memory_budget_gb * 1e9),
                               model_cache_bytes=int(args.model_cache_gb * 1e9),
                               feature_cache_bytes=int(args.feature_cache_mb * 1024 ** 2)) as owned_runtime:
-            with owned_runtime.job(args.runtime_report):
+            with owned_runtime.job(args.runtime_report, metadata=vars(args)):
                 return _generate(args, owned_runtime)
-    with runtime.job(args.runtime_report):
+    with runtime.job(args.runtime_report, metadata=vars(args)):
         return _generate(args, runtime)
 
 
@@ -491,8 +491,11 @@ def _generate(args, runtime):
         context_channels=1024, proj_in_channels=1024,
         resolution=16,
     )
-    load_weights(ss_flow, HF_PIXAL3D + "ss_flow_img_dit_1_3B_64_bf16.safetensors", verbose=False,
-                 streaming=True, target_dtype=mx.float32 if args.ss_precision == "float32" else mx.float16)
+    ss_flow = runtime.load_model(("ss_flow", args.ss_precision), lambda: ss_flow,
+                                 lambda model: load_weights(model, HF_PIXAL3D + "ss_flow_img_dit_1_3B_64_bf16.safetensors",
+                                                            verbose=False, streaming=True,
+                                                            target_dtype=mx.float32 if args.ss_precision == "float32" else mx.float16),
+                                 retain=False)
     if args.quantize:
         from trellmlx.quantize import quantize_model
         quantize_model(ss_flow, bits=args.quantize)
@@ -612,7 +615,9 @@ def _generate(args, runtime):
         num_blocks=30, mlp_hidden=8192,
         context_channels=1024, proj_in_channels=2048,
     )
-    load_weights(lr_slat_flow, HF_PIXAL3D + "slat_flow_img2shape_dit_1_3B_512_bf16.safetensors", verbose=False, streaming=True)
+    lr_slat_flow = runtime.load_model("lr_flow", lambda: lr_slat_flow,
+                                      lambda model: load_weights(model, HF_PIXAL3D + "slat_flow_img2shape_dit_1_3B_512_bf16.safetensors",
+                                                                 verbose=False, streaming=True), retain=False)
     if args.slat_precision == "mixed":
         lr_slat_flow.compute_dtype = mx.float16
     if args.quantize:
@@ -705,7 +710,9 @@ def _generate(args, runtime):
         num_blocks=30, mlp_hidden=8192,
         context_channels=1024, proj_in_channels=2048,
     )
-    load_weights(hr_slat_flow, HF_PIXAL3D + "slat_flow_img2shape_dit_1_3B_1024_bf16.safetensors", verbose=False, streaming=True)
+    hr_slat_flow = runtime.load_model("hr_flow", lambda: hr_slat_flow,
+                                      lambda model: load_weights(model, HF_PIXAL3D + "slat_flow_img2shape_dit_1_3B_1024_bf16.safetensors",
+                                                                 verbose=False, streaming=True), retain=False)
     if args.slat_precision == "mixed":
         hr_slat_flow.compute_dtype = mx.float16
     if args.quantize:
@@ -825,7 +832,9 @@ def _generate(args, runtime):
         num_blocks=30, mlp_hidden=8192,
         context_channels=1024, proj_in_channels=2048,
     )
-    load_weights(tex_flow, HF_PIXAL3D + "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors", verbose=False, streaming=True)
+    tex_flow = runtime.load_model("texture_flow", lambda: tex_flow,
+                                  lambda model: load_weights(model, HF_PIXAL3D + "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors",
+                                                             verbose=False, streaming=True), retain=False)
     if args.slat_precision == "mixed":
         tex_flow.compute_dtype = mx.float16
     if args.quantize:
