@@ -19,6 +19,9 @@ import mlx.utils
 from .conditioning import array_bytes
 
 
+_RUNTIME_LOCK = threading.RLock()
+
+
 def image_fingerprint(path):
     digest = hashlib.sha256()
     with Path(path).open("rb") as source:
@@ -145,7 +148,7 @@ class StageGraph:
                 results = (result,) if len(stage.outputs) == 1 else tuple(result)
                 if len(results) != len(stage.outputs):
                     raise ValueError(f"Wrong output count from stage {stage.name}")
-                mx.eval(*[value for value in results if isinstance(value, mx.array)])
+                mx.eval(*[value for _, value in mlx.utils.tree_flatten(results) if isinstance(value, mx.array)])
                 values.update(zip(stage.outputs, results))
                 del arguments, result, results
                 for name in tuple(values):
@@ -176,15 +179,22 @@ class InferenceRuntime:
         self.stage_started = None
         self.model_loads = 0
         self.closed = False
+        self.owns_runtime_lock = False
 
     def __enter__(self):
         if self.closed or self.previous_limits is not None:
             raise RuntimeError("Runtime is closed or already active")
-        previous_memory = mx.set_memory_limit(self.memory_budget_bytes)
+        _RUNTIME_LOCK.acquire()
+        self.owns_runtime_lock = True
+        previous_memory = None
         try:
+            previous_memory = mx.set_memory_limit(self.memory_budget_bytes)
             previous_cache = mx.set_cache_limit(self.allocator_cache_bytes)
         except BaseException:
-            mx.set_memory_limit(previous_memory)
+            if previous_memory is not None:
+                mx.set_memory_limit(previous_memory)
+            self.owns_runtime_lock = False
+            _RUNTIME_LOCK.release()
             raise
         self.previous_limits = (previous_memory, previous_cache)
         return self
@@ -286,3 +296,6 @@ class InferenceRuntime:
                 mx.set_cache_limit(previous_cache)
             self.previous_limits = None
             self.closed = True
+            if self.owns_runtime_lock:
+                self.owns_runtime_lock = False
+                _RUNTIME_LOCK.release()

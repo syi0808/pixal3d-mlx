@@ -317,7 +317,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--report", type=Path, default=Path("/tmp/trellis2mlx-batch/report.json"))
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--python", default=sys.executable)
-    parser.add_argument("--resolution", type=int, default=1024)
+    parser.add_argument("--resolution", type=int)
     parser.add_argument("--max-tokens", type=int, default=49152)
     parser.add_argument("--target-faces", type=int, default=200_000)
     parser.add_argument("--compile", action="store_true")
@@ -336,7 +336,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         output_dir=args.output_dir,
         output_prefix=args.output_prefix,
         outputs=tuple(args.outputs) if args.outputs else None,
-        resolution=args.resolution,
+        resolution=args.resolution if args.resolution is not None else (512 if args.engine == "pixal3d-persistent" else 1024),
         max_tokens=args.max_tokens,
         target_faces=args.target_faces,
         compile=args.compile,

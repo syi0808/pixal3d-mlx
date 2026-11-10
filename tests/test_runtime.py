@@ -56,6 +56,28 @@ def test_graph_rejects_cycles_and_missing_inputs():
         StageGraph([], ("missing",)).compile()
 
 
+def test_graph_materializes_nested_array_outputs_before_releasing_inputs():
+    graph = StageGraph([Stage("nested", (), ("nested",), lambda: {"features": mx.ones((2, 4)) * 3})], ("nested",))
+    result, = graph.execute()
+    np.testing.assert_array_equal(np.array(result["features"]), np.full((2, 4), 3))
+
+
+def test_resume_forwards_runtime_options_in_process(monkeypatch):
+    import generate_pixal3d
+    import resume_pixal3d
+
+    captured = []
+    monkeypatch.setattr(resume_pixal3d, "main", lambda argv, runtime=None: captured.append((argv, runtime)))
+    generate_pixal3d.main(["--image", "image.png", "--resume", "checkpoint", "--naf-threads", "64",
+                           "--memory-budget-gb", "8", "--compile-step", "--dense-conditioning"])
+    arguments, runtime = captured[0]
+    assert arguments[arguments.index("--naf-threads") + 1] == "64"
+    assert arguments[arguments.index("--memory-budget-gb") + 1] == "8.0"
+    assert "--compile-step" in arguments
+    assert "--dense-conditioning" in arguments
+    assert runtime is None
+
+
 def test_runtime_reuses_models_and_restores_global_limits_after_failure(tmp_path):
     original = mx.set_memory_limit(8_000_000_000)
     loads = []

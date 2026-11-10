@@ -644,7 +644,7 @@ def _generate(args, runtime):
     shape_dec_ckpt = HF_PIXAL3D + "shape_dec_next_dc_f16c32_fp16.safetensors"
     decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order)
     runtime.advance("coordinate_subdivision")
-    decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt)), lambda: decoder,
+    decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt), args.sparse_order), lambda: decoder,
                                  lambda model: load_weights(model, shape_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()
@@ -749,7 +749,7 @@ def _generate(args, runtime):
     runtime.advance("shape_decode_and_mesh")
 
     shape_decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order)
-    shape_decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt)), lambda: shape_decoder,
+    shape_decoder = runtime.load_model(("shape_decoder", checkpoint_fingerprint(shape_dec_ckpt), args.sparse_order), lambda: shape_decoder,
                                        lambda model: load_weights(model, shape_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()
@@ -884,7 +884,7 @@ def _generate(args, runtime):
 
     tex_decoder = SLatDecoder(out_channels=6, pred_subdiv=False, spatial_order=args.sparse_order)
     runtime.advance("texture_decode_and_export")
-    tex_decoder = runtime.load_model(("texture_decoder", checkpoint_fingerprint(tex_dec_ckpt)), lambda: tex_decoder,
+    tex_decoder = runtime.load_model(("texture_decoder", checkpoint_fingerprint(tex_dec_ckpt), args.sparse_order), lambda: tex_decoder,
                                      lambda model: load_weights(model, tex_dec_ckpt, verbose=False, streaming=True))
 
     t0 = time.perf_counter()
