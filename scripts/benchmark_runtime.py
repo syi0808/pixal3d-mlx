@@ -11,7 +11,7 @@ import time
 import mlx.core as mx
 import numpy as np
 
-from trellmlx.models.naf import neighborhood_attention
+from trellmlx.models.naf import fused_neighborhood_attention, neighborhood_attention
 from trellmlx.models.shape_slat_decoder import SparseChannel2Spatial
 from trellmlx.modules.proj_grid import ProjGrid
 from trellmlx.modules.sparse_conv import SparseConv3d, build_neighbor_map
@@ -45,6 +45,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--naf-size", type=int, default=64)
+    parser.add_argument("--only", help="Comma-separated benchmark names")
     arguments = parser.parse_args()
     rng = np.random.default_rng(42)
     mx.random.seed(42)
@@ -71,12 +72,13 @@ def main():
         "sparse_conv_2000": lambda: convolution(conv_features, neighbor_map),
         "dense_projection_32": lambda: projector(image_features, mx.array([0.7]), mx.array([2.0]), mx.array([1.0])),
         f"naf_{naf_size}": lambda: neighborhood_attention(query, keys, values, (9, 9), 32 ** -0.5),
+        f"naf_fused_{naf_size}": lambda: fused_neighborhood_attention(query, keys, values, (9, 9), 32 ** -0.5),
     }
     report = {
         "kind": "synthetic-component-benchmark",
         "platform": platform.platform(),
         "mlx_version": mx.__version__,
-        "device": mx.metal.device_info(),
+        "device": mx.device_info(),
         "git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "git_status": subprocess.check_output(["git", "status", "--short"], text=True),
         "repeats": arguments.repeats,
@@ -84,6 +86,8 @@ def main():
     }
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
     for name, function in cases.items():
+        if arguments.only and name not in arguments.only.split(","):
+            continue
         report["results"][name] = measure(function, arguments.repeats)
         print(name, report["results"][name], flush=True)
         arguments.output.write_text(json.dumps(report, indent=2) + "\n")

@@ -231,6 +231,14 @@ def neighborhood_attention(q, k, v, kernel_size, scale, dilation=(1, 1)):
     return mx.concatenate(out_chunks, axis=2)
 
 
+def fused_neighborhood_attention(queries, keys, values, kernel_size, scale,
+                                 dilation=(1, 1), upsample=(1, 1)):
+    from ..metal_kernels import neighborhood_attention_metal
+
+    return neighborhood_attention_metal(
+        queries, keys, values, kernel_size, scale, dilation=dilation, upsample=upsample)
+
+
 # ── Cross Attention ──
 
 class NAFCrossAttention(nn.Module):
@@ -241,11 +249,12 @@ class NAFCrossAttention(nn.Module):
     attention is applied.
     """
 
-    def __init__(self, dim: int, num_heads: int, kernel_size=(9, 9)):
+    def __init__(self, dim: int, num_heads: int, kernel_size=(9, 9), backend="auto"):
         super().__init__()
         self.num_heads = num_heads
         self.kernel_size = kernel_size
         self.scale = (dim // num_heads) ** -0.5
+        self.backend = backend
 
     def __call__(self, q, k, v, image=None):
         """
@@ -264,6 +273,18 @@ class NAFCrossAttention(nn.Module):
         # Reshape Q to [B, n, Hq, Wq, d]
         dq = C // n
         q = q.reshape(B, n, dq, Hq, Wq).transpose(0, 1, 3, 4, 2)  # [B, n, Hq, Wq, dq]
+
+        if self.backend == "metal" or (self.backend == "auto" and mx.default_device() == mx.gpu):
+            value_channels = v.shape[1]
+            keys = k.reshape(B, n, dq, Hk, Wk).transpose(0, 1, 3, 4, 2)
+            values = v.reshape(B, n, value_channels // n, Hk, Wk).transpose(0, 1, 3, 4, 2)
+            upsample = (Hq // Hk, Wq // Wk)
+            output = fused_neighborhood_attention(
+                q, keys, values, self.kernel_size, self.scale,
+                dilation=upsample, upsample=upsample)
+            return output.transpose(0, 1, 4, 2, 3).reshape(B, value_channels, Hq, Wq)
+        if self.backend not in ("auto", "reference"):
+            raise ValueError(f"Unknown NAF backend: {self.backend}")
 
         # Upsample K to query resolution via nearest
         # K: [B, C, Hk, Wk] → [B, C, Hq, Wq]
