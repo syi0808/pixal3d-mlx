@@ -50,8 +50,31 @@ class ProjectAttention(nn.Module):
         else:
             global_context, proj_context = context
 
-        global_out = self.cross_attn_block(x, global_context)
-        proj_out = self.proj_linear(proj_context)
+        from ..conditioning import PreparedConditioning
+
+        if isinstance(context, PreparedConditioning):
+            if context.zero_conditioning and hasattr(self.cross_attn_block, "to_kv"):
+                def constant_unconditional():
+                    inner = self.cross_attn_block
+                    projected = inner.to_kv(global_context[:, :1])
+                    values = projected.reshape(1, 1, 2, inner.num_heads, inner.head_dim)[:, :, 1]
+                    constant = inner.to_out(values.reshape(1, inner.channels))
+                    if "bias" in self.proj_linear:
+                        constant = constant + self.proj_linear.bias
+                    return constant
+
+                constant = context.invariant((id(self), "unconditional"), constant_unconditional)
+                return mx.broadcast_to(constant, x.shape)
+            if global_context.ndim == 3 and hasattr(self.cross_attn_block, "prepare_context"):
+                prepared = context.invariant((id(self), "global_kv"),
+                                             lambda: self.cross_attn_block.prepare_context(global_context))
+                global_out = self.cross_attn_block(x, global_context, prepared_kv=prepared)
+            else:
+                global_out = self.cross_attn_block(x, global_context)
+            proj_out = context.invariant((id(self), "projection"), lambda: self.proj_linear(proj_context))
+        else:
+            global_out = self.cross_attn_block(x, global_context)
+            proj_out = self.proj_linear(proj_context)
 
         # For dense (SparseStructureFlow): x is [B*R^3, C], proj is [B, R^3, proj_in]
         # Need to reshape proj_out to match. proj_out after linear is [B, R^3, C].

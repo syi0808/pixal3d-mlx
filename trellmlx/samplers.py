@@ -8,6 +8,12 @@ Implements the FlowEulerGuidanceIntervalSampler from the reference:
 
 import mlx.core as mx
 import numpy as np
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def _compiled_euler_update():
+    return mx.compile(lambda sample, prediction, delta: sample - delta * prediction)
 
 
 def _cfg_rescale(x_0_pos: mx.array, x_0_cfg: mx.array, *, sparse_tokens: bool = False) -> mx.array:
@@ -49,6 +55,9 @@ def flow_euler_sample(
     sigma_min: float = 1e-5,
     verbose: bool = True,
     concat_cond: mx.array = None,
+    conditioning_cache_bytes: int = 128 * 1024 * 1024,
+    ffn_chunk_size: int = 2048,
+    compile_step: bool = False,
     **model_kwargs,
 ):
     """Generate samples using flow-matching Euler sampling with CFG.
@@ -69,7 +78,25 @@ def flow_euler_sample(
     Returns:
         Final denoised sample, same shape as noise.
     """
+    from .conditioning import prepare_sampling
+
+    if steps < 1 or ffn_chunk_size < 0:
+        raise ValueError("Sampler steps must be positive and FFN chunk size nonnegative")
     sample = noise
+    for block in getattr(model, "blocks", []):
+        if hasattr(block, "mlp") and hasattr(block.mlp, "chunk_size"):
+            block.mlp.chunk_size = ffn_chunk_size
+    prepared_contexts = []
+    if getattr(model, "supports_static_conditioning", False):
+        compute_dtype = getattr(model, "compute_dtype", None)
+        if compute_dtype is not None and isinstance(cond, dict):
+            from .conditioning import ZeroConditioning
+
+            cond = {name: value.astype(compute_dtype) for name, value in cond.items()}
+            negative_values = {name: value.astype(compute_dtype) for name, value in neg_cond.items()}
+            neg_cond = ZeroConditioning(negative_values) if isinstance(neg_cond, ZeroConditioning) else negative_values
+        cond, neg_cond, model_kwargs, prepared_contexts = prepare_sampling(
+            model, noise, cond, neg_cond, model_kwargs, conditioning_cache_bytes)
 
     if concat_cond is not None:
         model_kwargs['concat_cond'] = concat_cond
@@ -78,51 +105,69 @@ def flow_euler_sample(
     t_seq = np.linspace(1, 0, steps + 1)
     t_seq = rescale_t * t_seq / (1 + (rescale_t - 1) * t_seq)
     t_pairs = [(t_seq[i], t_seq[i + 1]) for i in range(steps)]
+    modulations = None
+    if getattr(model, "supports_static_conditioning", False) and conditioning_cache_bytes:
+        modulations = []
+        for time_value in t_seq[:-1]:
+            embedding = model.t_embedder(mx.array([1000 * time_value], dtype=mx.float32))
+            if getattr(model, "compute_dtype", None) is not None:
+                embedding = embedding.astype(model.compute_dtype)
+            modulations.append(model.adaLN_modulation(embedding))
+        mx.eval(modulations)
 
-    for step_idx, (t, t_prev) in enumerate(t_pairs):
-        if verbose:
-            print(f"  Step {step_idx + 1}/{steps} (t={t:.4f}→{t_prev:.4f})", end="", flush=True)
+    try:
+        for step_idx, (t, t_prev) in enumerate(t_pairs):
+            if verbose:
+                print(f"  Step {step_idx + 1}/{steps} (t={t:.4f}→{t_prev:.4f})", end="", flush=True)
 
-        t_tensor = mx.array([1000 * t], dtype=mx.float32)
+            t_tensor = mx.array([1000 * t], dtype=mx.float32)
+            if modulations is not None:
+                model_kwargs["modulation"] = modulations[step_idx]
 
-        # Determine if we apply guidance at this timestep
-        apply_guidance = (
-            guidance_strength != 1.0
-            and guidance_interval[0] <= t <= guidance_interval[1]
-        )
+            # Determine if we apply guidance at this timestep
+            apply_guidance = (
+                guidance_strength != 1.0
+                and guidance_interval[0] <= t <= guidance_interval[1]
+            )
 
-        if apply_guidance:
-            # Two forward passes: conditioned and unconditioned
-            pred_pos = model(sample, t_tensor, cond, **model_kwargs)
-            pred_neg = model(sample, t_tensor, neg_cond, **model_kwargs)
-            mx.eval(pred_pos, pred_neg)
+            if apply_guidance:
+                # Two forward passes: conditioned and unconditioned
+                pred_pos = model(sample, t_tensor, cond, **model_kwargs)
+                pred_neg = model(sample, t_tensor, neg_cond, **model_kwargs)
+                mx.eval(pred_pos, pred_neg)
 
-            # CFG combination
-            pred = guidance_strength * pred_pos + (1 - guidance_strength) * pred_neg
+                # CFG combination
+                pred = guidance_strength * pred_pos + (1 - guidance_strength) * pred_neg
 
-            # CFG rescale (reduces overexposure)
-            if guidance_rescale > 0:
-                x_0_pos = _pred_to_xstart(sample, t, pred_pos, sigma_min)
-                x_0_cfg = _pred_to_xstart(sample, t, pred, sigma_min)
+                # CFG rescale (reduces overexposure)
+                if guidance_rescale > 0:
+                    x_0_pos = _pred_to_xstart(sample, t, pred_pos, sigma_min)
+                    x_0_cfg = _pred_to_xstart(sample, t, pred, sigma_min)
 
-                x_0_rescaled = _cfg_rescale(
-                    x_0_pos, x_0_cfg,
-                    sparse_tokens="coords" in model_kwargs and sample.ndim == 2)
-                x_0 = guidance_rescale * x_0_rescaled + (1 - guidance_rescale) * x_0_cfg
-                pred = _xstart_to_pred(sample, t, x_0, sigma_min)
-        else:
-            # Single forward pass with positive conditioning
-            pred = model(sample, t_tensor, cond, **model_kwargs)
-            mx.eval(pred)
+                    x_0_rescaled = _cfg_rescale(
+                        x_0_pos, x_0_cfg,
+                        sparse_tokens="coords" in model_kwargs and sample.ndim == 2)
+                    x_0 = guidance_rescale * x_0_rescaled + (1 - guidance_rescale) * x_0_cfg
+                    pred = _xstart_to_pred(sample, t, x_0, sigma_min)
+            else:
+                # Single forward pass with positive conditioning
+                pred = model(sample, t_tensor, cond, **model_kwargs)
+                mx.eval(pred)
 
-        # Euler step
-        sample = sample - (t - t_prev) * pred
-        mx.eval(sample)
+            # Euler step
+            if compile_step:
+                sample = _compiled_euler_update()(sample, pred, mx.array(t - t_prev, dtype=sample.dtype))
+            else:
+                sample = sample - (t - t_prev) * pred
+            mx.eval(sample)
 
-        if verbose:
-            print(f" done", flush=True)
+            if verbose:
+                print(f" done", flush=True)
 
-    return sample
+        return sample
+    finally:
+        for context in prepared_contexts:
+            context.clear_invariants()
 
 
 def _pred_to_xstart(x_t, t, pred, sigma_min):

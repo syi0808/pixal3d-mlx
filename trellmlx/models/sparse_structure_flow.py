@@ -64,7 +64,13 @@ class MultiHeadAttention(nn.Module):
         self.q_rms_norm = MultiHeadRMSNorm(self.head_dim, num_heads)
         self.k_rms_norm = MultiHeadRMSNorm(self.head_dim, num_heads)
 
-    def __call__(self, x: mx.array, context: mx.array = None, rope_phases: mx.array = None) -> mx.array:
+    def prepare_context(self, context):
+        projected = self.to_kv(context)
+        projected = projected.reshape(context.shape[0], context.shape[1], 2, self.num_heads, self.head_dim)
+        return self.k_rms_norm(projected[:, :, 0]), projected[:, :, 1]
+
+    def __call__(self, x: mx.array, context: mx.array = None, rope_phases: mx.array = None,
+                 prepared_kv=None) -> mx.array:
         B_T = x.shape[0]
 
         if context is None:
@@ -73,19 +79,23 @@ class MultiHeadAttention(nn.Module):
             q, k, v = qkv[:, 0], qkv[:, 1], qkv[:, 2]
         else:
             q = self.to_q(x).reshape(B_T, self.num_heads, self.head_dim)
-            kv = self.to_kv(context)
-            if kv.ndim == 3:
+            if prepared_kv is not None:
+                k, v = prepared_kv
+            elif context.ndim == 3:
+                kv = self.to_kv(context)
                 S = kv.shape[1]
                 kv = kv.reshape(-1, S, 2, self.num_heads, self.head_dim)
                 k = kv[:, :, 0]
                 v = kv[:, :, 1]
             else:
+                kv = self.to_kv(context)
                 kv = kv.reshape(B_T, 2, self.num_heads, self.head_dim)
                 k, v = kv[:, 0], kv[:, 1]
 
         # QK RMSNorm (per-head)
         q = self.q_rms_norm(q)
-        k = self.k_rms_norm(k)
+        if prepared_kv is None:
+            k = self.k_rms_norm(k)
 
         # Apply RoPE to self-attention Q and K (not cross-attention)
         if rope_phases is not None and context is None:
@@ -116,8 +126,16 @@ class FeedForward(nn.Module):
         super().__init__()
         self.mlp_0 = nn.Linear(dim, hidden_dim)
         self.mlp_2 = nn.Linear(hidden_dim, dim)
+        self.chunk_size = 0
 
     def __call__(self, x: mx.array) -> mx.array:
+        if self.chunk_size and x.ndim == 2 and x.shape[0] > self.chunk_size:
+            outputs = []
+            for start in range(0, x.shape[0], self.chunk_size):
+                output = self.mlp_2(nn.gelu_approx(self.mlp_0(x[start:start + self.chunk_size])))
+                mx.eval(output)
+                outputs.append(output)
+            return mx.concatenate(outputs, axis=0)
         return self.mlp_2(nn.gelu_approx(self.mlp_0(x)))
 
 
@@ -206,9 +224,7 @@ def _layernorm_noaffine(x: mx.array, eps: float = 1e-6) -> mx.array:
     """LayerNorm without learnable affine (controlled by adaLN)."""
     orig_dtype = x.dtype
     x = x.astype(mx.float32)
-    mean = mx.mean(x, axis=-1, keepdims=True)
-    var = mx.var(x, axis=-1, keepdims=True)
-    x = (x - mean) * mx.rsqrt(var + eps)
+    x = mx.fast.layer_norm(x, weight=None, bias=None, eps=eps)
     return x.astype(orig_dtype)
 
 

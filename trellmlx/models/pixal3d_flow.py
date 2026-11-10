@@ -122,6 +122,8 @@ class Pixal3DSparseStructureFlowModel(nn.Module):
         resolution: 16
     """
 
+    supports_static_conditioning = True
+
     def __init__(
         self,
         in_channels: int = 8,
@@ -140,6 +142,9 @@ class Pixal3DSparseStructureFlowModel(nn.Module):
         self.model_channels = model_channels
         self.num_heads = num_heads
         self.resolution = resolution
+        self.proj_in_channels = proj_in_channels
+        self.eval_every = 2
+        self.compute_dtype = None
 
         self.t_embedder = TimestepEmbedder(model_channels)
         self.input_layer = nn.Linear(in_channels, model_channels)
@@ -163,12 +168,21 @@ class Pixal3DSparseStructureFlowModel(nn.Module):
         x: mx.array,        # [B, in_channels, R, R, R]
         t: mx.array,        # [B] timestep
         cond,                # dict: {'global': [B, L, C], 'proj': [B, R^3, proj_C]}
+        rope_phases=None,
+        modulation=None,
     ) -> mx.array:
         B = x.shape[0]
         R = x.shape[2]
 
-        t_emb = self.t_embedder(t)
-        mod = self.adaLN_modulation(t_emb)
+        input_dtype = x.dtype
+        if self.compute_dtype is not None:
+            x = x.astype(self.compute_dtype)
+        if modulation is None:
+            t_emb = self.t_embedder(t)
+            if self.compute_dtype is not None:
+                t_emb = t_emb.astype(self.compute_dtype)
+            modulation = self.adaLN_modulation(t_emb)
+        mod = modulation
 
         x = x.reshape(B, self.in_channels, -1)
         x = x.transpose(0, 2, 1)
@@ -176,12 +190,13 @@ class Pixal3DSparseStructureFlowModel(nn.Module):
         x = self.input_layer(x)
 
         head_dim = self.model_channels // self.num_heads
-        rope_phases = build_rope_phases(R, head_dim)
+        if rope_phases is None:
+            rope_phases = build_rope_phases(R, head_dim)
 
         assert B == 1, f"Only B=1 supported for inference, got B={B}"
         for i, block in enumerate(self.blocks):
             x = block(x, mod[0], cond, rope_phases=rope_phases)
-            if (i + 1) % 6 == 0:
+            if self.eval_every and (i + 1) % self.eval_every == 0:
                 mx.eval(x)
 
         # Upstream terminal F.layer_norm uses torch default eps=1e-5.
@@ -190,7 +205,7 @@ class Pixal3DSparseStructureFlowModel(nn.Module):
 
         x = x.reshape(B, R, R, R, self.out_channels)
         x = x.transpose(0, 4, 1, 2, 3)
-        return x
+        return x.astype(input_dtype) if self.compute_dtype is not None else x
 
 
 class Pixal3DSLatFlowModel(nn.Module):
@@ -214,6 +229,8 @@ class Pixal3DSLatFlowModel(nn.Module):
         proj_in_channels: 1024
     """
 
+    supports_static_conditioning = True
+
     def __init__(
         self,
         in_channels: int = 32,
@@ -231,6 +248,8 @@ class Pixal3DSLatFlowModel(nn.Module):
         self.model_channels = model_channels
         self.num_heads = num_heads
         self.head_dim = model_channels // num_heads
+        self.eval_every = 2
+        self.compute_dtype = None
 
         self.t_embedder = TimestepEmbedder(model_channels)
         self.input_layer = nn.Linear(in_channels, model_channels)
@@ -256,30 +275,40 @@ class Pixal3DSLatFlowModel(nn.Module):
         cond,                # dict: {'global': [B, L, C], 'proj': [N, proj_C]}
         coords: mx.array = None,  # [N, 3] for RoPE
         concat_cond: mx.array = None,
+        rope_phases=None,
+        modulation=None,
     ) -> mx.array:
         N = x.shape[0]
+        input_dtype = x.dtype
+        if self.compute_dtype is not None:
+            x = x.astype(self.compute_dtype)
+            if concat_cond is not None:
+                concat_cond = concat_cond.astype(self.compute_dtype)
 
         if concat_cond is not None:
             x = mx.concatenate([x, concat_cond], axis=-1)
 
-        t_emb = self.t_embedder(t)
-        mod = self.adaLN_modulation(t_emb)
+        if modulation is None:
+            t_emb = self.t_embedder(t)
+            if self.compute_dtype is not None:
+                t_emb = t_emb.astype(self.compute_dtype)
+            modulation = self.adaLN_modulation(t_emb)
+        mod = modulation
 
         x = self.input_layer(x)
 
-        rope_phases = None
-        if coords is not None:
+        if coords is not None and rope_phases is None:
             rope_phases = self._coords_to_rope_phases(coords)
 
         for i, block in enumerate(self.blocks):
             x = block(x, mod[0], cond, rope_phases=rope_phases)
-            if (i + 1) % 6 == 0:
+            if self.eval_every and (i + 1) % self.eval_every == 0:
                 mx.eval(x)
 
         # Upstream terminal F.layer_norm uses torch default eps=1e-5.
         x = _layernorm_noaffine(x, eps=1e-5)
         x = self.out_layer(x)
-        return x
+        return x.astype(input_dtype) if self.compute_dtype is not None else x
 
     def _coords_to_rope_phases(self, coords: mx.array) -> mx.array:
         """Compute RoPE phases from sparse voxel coordinates."""
