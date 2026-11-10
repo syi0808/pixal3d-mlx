@@ -15,6 +15,8 @@ The attached turnip's 512 GLB and full-pipeline resource measurements are in
 [turnip512-validation.md](turnip512-validation.md).
 Strict triangle caps, checkpoint-only LOD export, and additional CPU topology
 experiments are documented in [performance-followup.md](performance-followup.md).
+Frozen-input SS/HR compilation, synchronization, and FFN/cache experiments are
+documented in [transformer-sampling-investigation.md](transformer-sampling-investigation.md).
 
 ## Execution and memory ownership
 
