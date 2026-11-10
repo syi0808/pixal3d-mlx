@@ -1,5 +1,9 @@
 # Turnip 20K soft-target export
 
+For the subsequent normal-corrected model and actual Cycles PBR views, see
+[normal correction and PBR rendering](turnip20k-normal-correction.md). The
+original export described here remains unchanged.
+
 Generated `outputs/turnip20k/turnip-20k.glb` with `--target-faces 20000` and
 **without `--max-faces`**. The final GLB contains **20,034 triangles**, 13,832
 UV-split vertices, and 1024 x 1024 base-color and metallic/roughness maps.
