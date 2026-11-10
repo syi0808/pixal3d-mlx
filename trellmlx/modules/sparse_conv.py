@@ -24,7 +24,7 @@ class NeighborMap(tuple):
         return instance
 
 
-def build_neighbor_map(coords: mx.array, kernel_size: int = 3) -> tuple:
+def build_neighbor_map(coords: mx.array, kernel_size: int = 3, backend="auto") -> tuple:
     """Build source/target index pairs for sparse convolution.
 
     For each active voxel, find which of its 3³=27 neighbors are also active.
@@ -41,6 +41,16 @@ def build_neighbor_map(coords: mx.array, kernel_size: int = 3) -> tuple:
         tgt_idx: [E] target voxel indices
         k_idx: [E] kernel position indices (0..26 for 3x3x3)
     """
+    if backend not in ("auto", "gpu", "cpu"):
+        raise ValueError(f"Unknown sparse backend: {backend}")
+    if coords.ndim != 2 or coords.shape[1] != 4:
+        raise ValueError("Sparse coordinates must have shape [N, 4]")
+    if kernel_size <= 0 or kernel_size % 2 == 0:
+        raise ValueError("Sparse kernel size must be a positive odd integer")
+    if backend == "gpu" or (backend == "auto" and mx.default_device() == mx.gpu):
+        from ..sparse_runtime import build_gpu_neighbor_map
+
+        return build_gpu_neighbor_map(coords, kernel_size)
     coordinates = np.asarray(coords)
     if coordinates.ndim != 2 or coordinates.shape[1] != 4:
         raise ValueError("Sparse coordinates must have shape [N, 4]")

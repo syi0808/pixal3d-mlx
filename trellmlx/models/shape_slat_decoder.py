@@ -61,6 +61,10 @@ class SparseChannel2Spatial:
 
     @staticmethod
     def prepare(coords: mx.array, subdiv_mask: mx.array) -> tuple:
+        if mx.default_device() == mx.gpu:
+            from ..sparse_runtime import prepare_gpu_subdivision
+
+            return prepare_gpu_subdivision(coords, subdiv_mask)
         coordinates = np.asarray(coords)
         mask = np.asarray(subdiv_mask)
         parents, children = np.nonzero(mask)
