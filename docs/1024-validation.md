@@ -153,3 +153,7 @@ Conclusion: **1024 can finish on this 18 GB Mac for this input with the optimize
 single-job runtime, but it uses swap and briefly reaches critical pressure.**
 Treat it as a constrained mode, not proof of swap-free operation or reliable
 headroom for larger assets or concurrent generation.
+
+Follow-up frozen-latent memory ablations are in
+[decoder-investigation.md](decoder-investigation.md). Those isolated replays do
+not replace this full-pipeline measurement or establish a new end-to-end peak.

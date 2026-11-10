@@ -7,6 +7,8 @@ token pruning, or automatic precision reductions.
 
 The completed native-MoGe 1024 experiment, including process footprint, swap,
 and pressure measurements, is documented in [1024-validation.md](1024-validation.md).
+Follow-up decoder liveness ablations and transformer precision/cache findings
+are documented in [decoder-investigation.md](decoder-investigation.md).
 
 ## Execution and memory ownership
 
