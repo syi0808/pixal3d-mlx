@@ -37,7 +37,8 @@ def main(argv=None, runtime=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fov", type=float, default=-1.0)
     parser.add_argument("--texture-size", type=int, default=4096)
-    parser.add_argument("--target-faces", type=int, default=500_000)
+    parser.add_argument("--target-faces", type=int, default=500_000,
+                        help="Soft triangle target before final mesh repairs; use --max-faces for a strict cap")
     parser.add_argument("--max-faces", type=int, default=0,
                         help="Strict final triangle limit after mesh repair (0=disabled)")
     parser.add_argument("--no-rembg", action="store_true")

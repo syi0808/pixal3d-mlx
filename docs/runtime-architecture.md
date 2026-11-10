@@ -13,6 +13,8 @@ The validated production shape/texture policy is documented in
 [shape-decoder-integration.md](shape-decoder-integration.md).
 The attached turnip's 512 GLB and full-pipeline resource measurements are in
 [turnip512-validation.md](turnip512-validation.md).
+Strict triangle caps, checkpoint-only LOD export, and additional CPU topology
+experiments are documented in [performance-followup.md](performance-followup.md).
 
 ## Execution and memory ownership
 

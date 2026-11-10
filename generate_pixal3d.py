@@ -317,7 +317,8 @@ def main(argv=None, runtime=None):
                         help="Skip MoGe camera estimation, use fixed default FOV (~49 deg)")
     parser.add_argument("--resolution", type=int, default=512)
     parser.add_argument("--max-tokens", type=int, default=49152)
-    parser.add_argument("--target-faces", type=int, default=200_000)
+    parser.add_argument("--target-faces", type=int, default=200_000,
+                        help="Soft triangle target before final mesh repairs; use --max-faces for a strict cap")
     parser.add_argument("--max-faces", type=int, default=0,
                         help="Strict final triangle limit after mesh repair (0=disabled)")
     parser.add_argument("--no-rembg", action="store_true")
