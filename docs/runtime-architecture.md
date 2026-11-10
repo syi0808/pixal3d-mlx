@@ -11,6 +11,8 @@ Follow-up decoder liveness ablations and transformer precision/cache findings
 are documented in [decoder-investigation.md](decoder-investigation.md).
 The validated production shape/texture policy is documented in
 [shape-decoder-integration.md](shape-decoder-integration.md).
+The attached turnip's 512 GLB and full-pipeline resource measurements are in
+[turnip512-validation.md](turnip512-validation.md).
 
 ## Execution and memory ownership
 

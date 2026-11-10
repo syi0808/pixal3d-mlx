@@ -26,6 +26,10 @@ enabled in production.
 This is not a hard memory cap. MLX's configured 10 GB evaluation guideline and
 the external process/pressure watchdog retain their existing meanings.
 
+An attached-image 512 generation using this policy completed and exported a
+validated GLB; its full-pipeline measurements are in
+[turnip512-validation.md](turnip512-validation.md).
+
 ## Frozen 1024 shape validation
 
 Measured on 2026-11-10, M3 Pro / 18 GiB, MLX 0.31.2, code revision `a51b5e6`.
