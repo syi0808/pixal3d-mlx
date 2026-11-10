@@ -169,6 +169,58 @@ metadata. Benchmark inputs remain synthetic even when checkpoint weights are
 real. Full-pipeline quality, 1024 memory feasibility, and multi-asset throughput
 require separate validation.
 
+## Completed 512 generation
+
+An actual `assets/shoe_input.png` generation completed with pretrained weights,
+the normal 12-step schedules, FP32 SS, no weight quantization, and a 10 GB MLX
+limit:
+
+| Measurement | Observed |
+| --- | ---: |
+| Pipeline-reported elapsed time | 368.7 s |
+| Peak MLX allocation | 8,173,536,474 bytes |
+| Process high-water RSS (`time -l`) | 6,826,115,072 bytes |
+| Peak process memory footprint (`time -l`) | 9,501,707,072 bytes |
+| Shape / texture latent tokens | 2,219 |
+| Exported faces | 209,727 |
+| Base color and metallic/roughness maps | 1024 x 1024 |
+
+These memory figures describe different accounting domains and must not be
+added together. The run demonstrates the 10 GB MLX target for **one input**,
+not every 512 input. It is not a before/after whole-pipeline speed comparison.
+The run used the supported default FOV, 49.1 degrees, because upstream MoGe
+checkpoint loading initially required a missing Torch installation. Background
+removal and its first model download are included in the cold-run time.
+
+Artifacts are `outputs/runtime/e2e512/shoe.glb`, `runtime.json`,
+`generation.log`, `validation.json`, and `shoe-witness.png`. Geometry coordinates
+are finite and nonempty, both PBR maps load successfully, and the three-view
+witness render is nonblank. This is not a rigorous quality-equivalence study
+against an older-runtime render or a watertightness guarantee.
+
+## Native MoGe checkpoint preparation
+
+Pixal3D, DINOv3, MoGe, and NAF downloads are now present locally. The official
+MoGe checkpoint was checksum-verified and converted once to raw safetensors,
+so the runtime adapter can use the original `moge_mlx` model and weight mapping
+without importing Torch. Torch is used only by the isolated conversion tool.
+
+```bash
+moge_source=$(.venv/bin/python -c 'import json; print(json.load(open("weights/download-manifest.json"))["models"]["moge"]["path"])')
+uv run --no-project --python .venv/bin/python --with torch --with numpy --with safetensors \
+  python scripts/convert_moge_weights.py --input "$moge_source" \
+  --expected-sha256 3eefd4abb2102f38f12b2d1992e5ff15e4923e5431c67dd494afe157e0111cd5
+```
+
+The converter uses `weights_only=True`, verifies the pinned source hash, and
+writes `weights/moge_release.safetensors` atomically with a provenance manifest.
+The native camera path was independently exercised on the preprocessed shoe:
+2.46 s, 4.17 GB peak MLX allocation, FOV 37.0 degrees, with no Torch module
+imported. Its report is `outputs/runtime/native-camera.runtime.json`.
+The six-minute GLB above is from the earlier default-FOV run, not a rerun with
+this newly available camera estimate. If the native checkpoint is absent, the
+adapter preserves the upstream loader/fallback behavior.
+
 ## Running and comparing
 
 ```bash
