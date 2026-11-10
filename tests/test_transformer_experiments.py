@@ -48,3 +48,25 @@ def test_asynchronous_ffn_evaluation_preserves_sync_reference_with_real_chunks()
     expected = original(features)
     mx.eval(expected)
     np.testing.assert_array_equal(np.array(experiment(features)), np.array(expected))
+
+
+def test_pure_compiled_blocks_do_not_capture_a_previous_image_context():
+    configuration = dict(in_channels=8, out_channels=8, model_channels=32, num_heads=4,
+                         num_blocks=2, mlp_hidden=64, context_channels=16, proj_in_channels=12)
+    reference = Pixal3DSLatFlowModel(**configuration)
+    compiled = Pixal3DSLatFlowModel(**configuration)
+    compiled.load_weights(mlx.utils.tree_flatten(reference.parameters()))
+    options = VARIANTS["compiled-block"]
+    configure_transformer(compiled, options)
+    noise = mx.random.normal((9, 8))
+    coordinates = mx.arange(27).reshape(9, 3)
+    outputs = []
+    for value in (0.5, -1.0):
+        context = {"global": mx.full((1, 5, 16), value), "proj": mx.full((1, 9, 12), value)}
+        negative = ZeroConditioning({name: mx.zeros_like(array) for name, array in context.items()})
+        expected = flow_euler_sample(reference, noise, context, negative, steps=3, verbose=False, coords=coordinates)
+        actual = flow_euler_sample(compiled, noise, context, negative, steps=3, verbose=False,
+                                   coords=coordinates, ffn_chunk_size=0)
+        np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-4, atol=2e-5)
+        outputs.append(np.array(actual))
+    assert not np.array_equal(outputs[0], outputs[1])
