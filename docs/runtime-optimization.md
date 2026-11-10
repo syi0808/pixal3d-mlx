@@ -64,6 +64,17 @@ Raw reports are retained locally in the ignored `outputs/runtime/` directory:
 `baseline-components.json`, `resumed-components.json`, and
 `resumed-metal-naf-128.json`.
 
+The official NAF checkpoint was also checksum-verified, converted, and loaded
+with all 37 parameters present. With a 512 x 512 guide image and synthetic
+`1024 x 32 x 32` DINO features, the complete pretrained NAF module measured
+576.77 ms with the reference backend versus 249.98 ms with Metal at output
+size 128 x 128: approximately **2.31x**, not 17x. Maximum absolute output
+difference was `1.46e-5`. Peak MLX allocations were 3.65 GiB and 2.93 GiB.
+Metal output at 512 x 512 completed in 456.76 ms with a 3.86 GiB peak.
+These measurements include the image encoder and use three timed repeats;
+they still do not use real DINO features or validate the full pipeline's
+1024 x 1024 HR guide image. Details are in `outputs/runtime/pretrained-naf.json`.
+
 ```bash
 uv sync --frozen --extra dev
 .venv/bin/python -m pytest tests/test_sparse_runtime.py tests/test_sparse_projection.py tests/test_metal_naf.py tests/test_pixal3d_proj.py tests/test_generate_pixal3d_contract.py tests/test_naf_natten_borders.py -q
@@ -74,7 +85,8 @@ PYTHONPATH=. .venv/bin/python scripts/benchmark_runtime.py --output outputs/runt
 The focused suite passes, including partial Metal threadgroups, non-contiguous
 cross-attention inputs, cached feature extraction, projection equivalence,
 shuffled sparse coordinates, and unsigned 16-bit coordinate boundaries.
-The full suite has three pre-existing README onboarding failures:
+The resumed full suite reports 232 passed, 6 skipped, and three pre-existing
+README onboarding failures:
 `test_readme_uses_current_huggingface_cli`,
 `test_readme_tests_section_avoids_stale_exact_count`, and
 `test_readme_quantization_section_states_measured_tradeoff`.
