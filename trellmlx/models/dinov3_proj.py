@@ -73,6 +73,8 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         distance: mx.array,
         mesh_scale: mx.array,
         transform_matrix=None,
+        coords=None,
+        backbone_features=None,
     ) -> Tuple[mx.array, mx.array]:
         """Extract view-aligned features.
 
@@ -90,10 +92,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         B = image.shape[0]
 
         # Normalize (ImageNet)
-        image_norm = (image - IMAGENET_MEAN) / IMAGENET_STD
-
-        # Extract DINOv3 features
-        z = self.dinov3(image_norm)  # [B, 1029, 1024]
+        z = self.encode_image(image) if backbone_features is None else backbone_features
 
         # Split into global (CLS + registers) and patch tokens
         z_global = z[:, :self.num_prefix]  # [B, 5, 1024]
@@ -112,6 +111,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             mesh_scale,
             transform_matrix,
             BHWC=True,
+            coords=coords,
         )  # [B, R^3, 1024]
 
         if self.use_naf_upsample and self.naf_model is not None:
@@ -132,6 +132,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
                 mesh_scale,
                 transform_matrix,
                 BHWC=False,  # NAF output is BCHW
+                coords=coords,
             )  # [B, R^3, 1024]
 
             # Concatenate LR + HR (matching upstream NAF output format)
@@ -150,6 +151,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
                 mesh_scale,
                 transform_matrix,
                 BHWC=True,
+                coords=coords,
             )
 
             z_proj = mx.concatenate([z_proj_lr, z_proj_hr], axis=-1)
@@ -157,6 +159,9 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             z_proj = z_proj_lr
 
         return z_global, z_proj
+
+    def encode_image(self, image):
+        return self.dinov3((image - IMAGENET_MEAN) / IMAGENET_STD)
 
 
 def preprocess_image(image: Image.Image, size: int = 512) -> mx.array:

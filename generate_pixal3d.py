@@ -165,7 +165,8 @@ def _requantize_coords(hr_coords_np, lr_resolution, hr_resolution):
 def extract_proj_features(image_path, dinov3_model, grid_resolution, image_size,
                           camera_params, no_rembg=False,
                           use_naf_upsample=False, use_bilinear_upsample=False,
-                          upsample_target_size=128, naf_model=None):
+                          upsample_target_size=128, naf_model=None,
+                          coords=None, feature_cache=None):
     """Extract DINOv3 + projection features for one stage.
 
     Returns:
@@ -198,7 +199,17 @@ def extract_proj_features(image_path, dinov3_model, grid_resolution, image_size,
     dist = mx.array([camera_params['distance']])
     scale = mx.array([camera_params['mesh_scale']])
 
-    z_global, z_proj = extractor(img_tensor, fov, dist, scale)
+    options = {}
+    if coords is not None:
+        options["coords"] = coords
+    if feature_cache is not None:
+        cache_key = (str(image_path), image_size, no_rembg, id(dinov3_model))
+        if cache_key not in feature_cache:
+            encoded = extractor.encode_image(img_tensor)
+            mx.eval(encoded)
+            feature_cache[cache_key] = encoded
+        options["backbone_features"] = feature_cache[cache_key]
+    z_global, z_proj = extractor(img_tensor, fov, dist, scale, **options)
     mx.eval(z_global, z_proj)
 
     cond = {'global': z_global, 'proj': z_proj}
@@ -217,7 +228,8 @@ def cast_conditioning_to_dtype(cond, dtype):
     return cond.astype(dtype)
 
 
-def index_proj_by_coords(cond, neg_cond, coords_4d, grid_resolution, target_dim=None):
+def index_proj_by_coords(cond, neg_cond, coords_4d, grid_resolution, target_dim=None,
+                         preindexed=False):
     """Index full-grid projection features by sparse coordinates.
 
     For SLat stages, we need per-token projection features indexed by
@@ -236,6 +248,8 @@ def index_proj_by_coords(cond, neg_cond, coords_4d, grid_resolution, target_dim=
         sparse_cond, sparse_neg_cond: dicts with 'proj' of shape [1, N, D]
     """
     R = grid_resolution
+    if preindexed:
+        return cond, neg_cond
     z_proj = cond['proj']  # [1, R^3, D]
     z_proj_grid = z_proj.reshape(1, R, R, R, -1)
 
@@ -245,18 +259,18 @@ def index_proj_by_coords(cond, neg_cond, coords_4d, grid_resolution, target_dim=
     z_idx = coords_4d[:, 3].astype(np.int32)
 
     # Index into the grid
-    z_proj_grid_np = np.array(z_proj_grid)
-    z_proj_sparse = z_proj_grid_np[batch_idx, x_idx, y_idx, z_idx]
+    flat_indices = (((batch_idx * R + x_idx) * R + y_idx) * R + z_idx).astype(np.int32)
+    z_proj_sparse = z_proj_grid.reshape(-1, z_proj.shape[-1])[mx.array(flat_indices)]
 
     # Zero-pad if model expects wider features (NAF upsample path)
     if target_dim is not None and z_proj_sparse.shape[-1] < target_dim:
         pad_width = target_dim - z_proj_sparse.shape[-1]
-        z_proj_sparse = np.concatenate([
+        z_proj_sparse = mx.concatenate([
             z_proj_sparse,
-            np.zeros((*z_proj_sparse.shape[:-1], pad_width), dtype=z_proj_sparse.dtype),
+            mx.zeros((*z_proj_sparse.shape[:-1], pad_width), dtype=z_proj_sparse.dtype),
         ], axis=-1)
 
-    z_proj_sparse = mx.array(z_proj_sparse)[None]  # [1, N, D]
+    z_proj_sparse = z_proj_sparse[None]
 
     sparse_cond = {'global': cond['global'], 'proj': z_proj_sparse}
     sparse_neg_cond = {
@@ -293,6 +307,9 @@ def main():
                         help="Quantize flow models (0=off, 4=INT4, 8=INT8). Reduces memory ~4-6x.")
     parser.add_argument("--ss-only", action="store_true",
                         help="Run only sparse structure stage (for debugging)")
+    parser.add_argument("--dense-conditioning", action="store_true",
+                        help="Use the dense projection reference instead of active coordinates")
+    parser.add_argument("--naf-backend", choices=["auto", "metal", "reference"], default="auto")
     args = parser.parse_args()
 
     # Redirect --resume to the dedicated resume script
@@ -382,8 +399,11 @@ def main():
 
     NAF_WEIGHTS = os.path.join(os.path.dirname(__file__), "weights", "naf_release.safetensors")
     naf = NAFModel()
+    if hasattr(naf, "upsampler"):
+        naf.upsampler.backend = args.naf_backend
     load_naf_weights(naf, NAF_WEIGHTS, verbose=False)
     print("  NAF loaded (37 params, 2.7MB).", flush=True)
+    feature_cache = {}
 
     # === Stage 1: Sparse Structure (proj) ===
     print("\n=== Stage 1: Sparse Structure (proj) ===", flush=True)
@@ -395,6 +415,7 @@ def main():
     ss_cond, ss_neg_cond = extract_proj_features(
         cond_image, dinov3, grid_resolution=16, image_size=512,
         camera_params=camera_params, no_rembg=True,
+        feature_cache=feature_cache,
     )
 
     ss_flow = Pixal3DSparseStructureFlowModel(
@@ -479,10 +500,14 @@ def main():
     # use proj_in_channels=2048 (NAF), but we can try with 1024 initially
     # and zero-pad the second half. For now, use grid_resolution=32.
     print("  Extracting proj features (shape LR, 512, grid=32, NAF upsample to 512)...", flush=True)
+    N_lr = len(lr_coords)
+    lr_coords_4d = np.column_stack([np.zeros(N_lr, dtype=np.int32), lr_coords])
     shape_lr_cond, shape_lr_neg_cond = extract_proj_features(
         cond_image, dinov3, grid_resolution=32, image_size=512,
         camera_params=camera_params, no_rembg=True,
         use_naf_upsample=True, upsample_target_size=512, naf_model=naf,
+        coords=None if args.dense_conditioning else lr_coords_4d,
+        feature_cache=feature_cache,
     )
 
     # Index projection features by sparse coordinates
@@ -490,6 +515,7 @@ def main():
     lr_coords_4d = np.column_stack([np.zeros(N_lr, dtype=np.int32), lr_coords])
     shape_lr_cond_sparse, shape_lr_neg_cond_sparse = index_proj_by_coords(
         shape_lr_cond, shape_lr_neg_cond, lr_coords_4d, grid_resolution=32,
+        preindexed=not args.dense_conditioning,
     )
 
     # Load LR shape flow (proj_in_channels=2048 for NAF, but we provide 1024)
@@ -566,12 +592,20 @@ def main():
         cond_image, dinov3, grid_resolution=hr_grid_resolution, image_size=hr_image_size,
         camera_params=camera_params, no_rembg=True,
         use_naf_upsample=True, upsample_target_size=512, naf_model=naf,
+        coords=None if args.dense_conditioning else quant_coords,
+        feature_cache=feature_cache,
     )
 
     # Index by HR sparse coordinates
     shape_hr_cond_sparse, shape_hr_neg_cond_sparse = index_proj_by_coords(
         shape_hr_cond, shape_hr_neg_cond, quant_coords, grid_resolution=hr_grid_resolution,
+        preindexed=not args.dense_conditioning,
     )
+    shared_hr_conditioning = (shape_hr_cond_sparse, shape_hr_neg_cond_sparse)
+    feature_cache.clear()
+    del dinov3, naf
+    gc.collect()
+    mx.clear_cache()
 
     hr_slat_flow = Pixal3DSLatFlowModel(
         in_channels=32, out_channels=32,
@@ -679,13 +713,11 @@ def main():
     # windowed attention on unified memory (GPU page fault). Use 512.
     tex_naf_size = 512
     print(f"  Extracting proj features (tex, {tex_image_size}, grid={hr_grid_resolution}, NAF upsample to {tex_naf_size})...", flush=True)
-    tex_cond, tex_neg_cond = extract_proj_features(
-        cond_image, dinov3, grid_resolution=hr_grid_resolution, image_size=tex_image_size,
-        camera_params=camera_params, no_rembg=True,
-        use_naf_upsample=True, upsample_target_size=tex_naf_size, naf_model=naf,
-    )
+    print("  Reusing HR image conditioning for texture.", flush=True)
+    tex_cond, tex_neg_cond = shared_hr_conditioning
     tex_cond_sparse, tex_neg_cond_sparse = index_proj_by_coords(
         tex_cond, tex_neg_cond, quant_coords, grid_resolution=hr_grid_resolution,
+        preindexed=True,
     )
 
     tex_flow = Pixal3DSLatFlowModel(
@@ -731,7 +763,7 @@ def main():
 
     cleanup_model(tex_flow)
     del tex_flow, tex_cond, tex_neg_cond, tex_cond_sparse, tex_neg_cond_sparse
-    del dinov3, naf  # no longer needed after all extractions done
+    del shared_hr_conditioning
     gc.collect()
     mx.metal.clear_cache()
 

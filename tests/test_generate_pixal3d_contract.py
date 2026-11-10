@@ -179,7 +179,7 @@ def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolu
     def sample(model, noise, *args, **kwargs):
         if "concat_cond" in kwargs:
             # Both extraction and sparse indexing must use the matching grid.
-            assert extracted_grids == [16, 32, resolution // 16, resolution // 16]
+            assert extracted_grids == [16, 32, resolution // 16]
             assert indexed_grids == [32, resolution // 16, resolution // 16]
             raise ReachedSampler
         return mx.zeros_like(noise)

@@ -185,6 +185,7 @@ class ProjGrid(nn.Module):
         mesh_scale: mx.array,
         transform_matrix=None,
         BHWC: bool = True,
+        coords=None,
     ) -> mx.array:
         """Project 3D grid and sample features.
 
@@ -205,9 +206,17 @@ class ProjGrid(nn.Module):
             B = features_map.shape[0]
 
         # Scale grid points
-        grid_points = mx.broadcast_to(
-            self._grid_points[None], (B, self._grid_points.shape[0], 3)
-        )
+        points = self._grid_points
+        if coords is not None:
+            coordinates = np.asarray(coords)
+            if B != 1 or coordinates.ndim != 2 or coordinates.shape[1] != 4:
+                raise ValueError("Sparse projection requires one batch and coordinates [N, 4]")
+            if np.any(coordinates[:, 0] != 0) or np.any(coordinates[:, 1:] < 0) or np.any(coordinates[:, 1:] >= self.grid_resolution):
+                raise ValueError("Sparse projection coordinates lie outside the projection grid")
+            indices = ((coordinates[:, 1] * self.grid_resolution + coordinates[:, 2]) *
+                       self.grid_resolution + coordinates[:, 3]).astype(np.int32)
+            points = points[mx.array(indices)]
+        grid_points = mx.broadcast_to(points[None], (B, points.shape[0], 3))
         grid_points = grid_points / mesh_scale[:, None, None] / 2.0
 
         # Build transform matrix (Pixal3D only uses front-view; custom transform
@@ -216,11 +225,7 @@ class ProjGrid(nn.Module):
         tm = mx.broadcast_to(
             self._front_view_transform[None], (B, 4, 4)
         )
-        # Set camera distance — need mutable copy
-        tm_np = np.array(tm)
-        for b in range(B):
-            tm_np[b, 1, 3] = -float(distance[b])
-        tm = mx.array(tm_np.astype(np.float32))
+        tm = tm.at[:, 1, 3].add(2.0 - distance)
 
         # Project to image coordinates
         image_points, _depth, _valid = project_points_to_image(
