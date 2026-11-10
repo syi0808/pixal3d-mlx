@@ -200,47 +200,31 @@ class ProjGrid(nn.Module):
         Returns:
             [B, R^3, C] projected features.
         """
+        image_points_norm = self.project(camera_angle_x, distance, mesh_scale,
+                                         transform_matrix=transform_matrix, coords=coords)
         if BHWC:
-            B = features_map.shape[0]
-        else:
-            B = features_map.shape[0]
+            features_map = features_map.transpose(0, 3, 1, 2)
+        return _grid_sample_bilinear(features_map, image_points_norm).transpose(0, 2, 1)
 
-        # Scale grid points
+    def project(self, camera_angle_x, distance, mesh_scale, transform_matrix=None, coords=None):
+        assert transform_matrix is None, "Custom transform_matrix not supported"
+        batch = camera_angle_x.shape[0]
         points = self._grid_points
         if coords is not None:
-            coordinates = np.asarray(coords)
-            if B != 1 or coordinates.ndim != 2 or coordinates.shape[1] != 4:
+            coordinates = coords if isinstance(coords, mx.array) else mx.array(coords)
+            if batch != 1 or coordinates.ndim != 2 or coordinates.shape[1] != 4:
                 raise ValueError("Sparse projection requires one batch and coordinates [N, 4]")
-            if np.any(coordinates[:, 0] != 0) or np.any(coordinates[:, 1:] < 0) or np.any(coordinates[:, 1:] >= self.grid_resolution):
+            invalid = mx.any(coordinates[:, 0] != 0) | mx.any(coordinates[:, 1:] < 0) | mx.any(coordinates[:, 1:] >= self.grid_resolution)
+            if bool(invalid.item()):
                 raise ValueError("Sparse projection coordinates lie outside the projection grid")
             indices = ((coordinates[:, 1] * self.grid_resolution + coordinates[:, 2]) *
-                       self.grid_resolution + coordinates[:, 3]).astype(np.int32)
-            points = points[mx.array(indices)]
-        grid_points = mx.broadcast_to(points[None], (B, points.shape[0], 3))
+                       self.grid_resolution + coordinates[:, 3]).astype(mx.int32)
+            points = points[indices]
+        grid_points = mx.broadcast_to(points[None], (batch, points.shape[0], 3))
         grid_points = grid_points / mesh_scale[:, None, None] / 2.0
-
-        # Build transform matrix (Pixal3D only uses front-view; custom transform
-        # is not used at inference time, matching upstream's assert)
-        assert transform_matrix is None, "Custom transform_matrix not supported"
-        tm = mx.broadcast_to(
-            self._front_view_transform[None], (B, 4, 4)
-        )
-        tm = tm.at[:, 1, 3].add(2.0 - distance)
-
-        # Project to image coordinates
-        image_points, _depth, _valid = project_points_to_image(
-            grid_points, tm, camera_angle_x, self.image_resolution
-        )
-
-        # Normalize to [-1, 1] for grid_sample
-        image_points_norm = (image_points + 0.5) / self.image_resolution * 2 - 1
-
-        if BHWC:
-            # [B, H, W, C] -> [B, C, H, W]
-            features_map = features_map.transpose(0, 3, 1, 2)
-
-        # Sample features
-        x = _grid_sample_bilinear(features_map, image_points_norm)  # [B, C, K]
-        x = x.transpose(0, 2, 1)  # [B, K, C]
-
-        return x
+        depth = grid_points[..., 1] + distance[:, None]
+        focal = (16.0 / mx.tan(camera_angle_x / 2.0) * self.image_resolution / 32.0)[:, None]
+        horizontal = focal * grid_points[..., 0] / (depth + 1e-8) + self.image_resolution / 2.0
+        vertical = -focal * grid_points[..., 2] / (depth + 1e-8) + self.image_resolution / 2.0
+        pixels = mx.stack([horizontal, vertical], axis=-1)
+        return (pixels + 0.5) / self.image_resolution * 2 - 1

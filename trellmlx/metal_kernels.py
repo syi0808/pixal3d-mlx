@@ -6,17 +6,19 @@ import mlx.core as mx
 
 
 _NAF_SOURCE = r"""
-    constexpr uint queries_per_group = 4;
+    constexpr uint queries_per_group = QueriesPerGroup;
     constexpr uint neighbors = KernelHeight * KernelWidth;
     uint lane = thread_index_in_simdgroup;
     uint query_slot = simdgroup_index_in_threadgroup;
     uint query_index = threadgroup_position_in_grid.x * queries_per_group + query_slot;
-    uint query_count = BatchHeads * Height * Width;
+    uint query_count = BatchHeads * QueryCount;
     threadgroup float probabilities[queries_per_group * neighbors];
     bool valid = query_index < query_count;
-    uint batch_head = query_index / (Height * Width);
-    uint row = (query_index / Width) % Height;
-    uint column = query_index % Width;
+    uint batch_head = query_index / QueryCount;
+    uint spatial_index = SparseQueries ? positions[query_index % QueryCount] : query_index % QueryCount;
+    uint query_offset = batch_head * Height * Width + spatial_index;
+    uint row = spatial_index / Width;
+    uint column = spatial_index % Width;
     uint row_group = row % DilationHeight;
     uint column_group = column % DilationWidth;
     uint row_group_length = (Height - row_group + DilationHeight - 1) / DilationHeight;
@@ -32,7 +34,7 @@ _NAF_SOURCE = r"""
             uint source_index = (batch_head * SourceHeight + source_row) * SourceWidth + source_column;
             float product = 0.0f;
             for (uint channel = lane; channel < QueryChannels; channel += 32) {
-                product += float(queries[query_index * QueryChannels + channel]) *
+                product += float(queries[query_offset * QueryChannels + channel]) *
                            float(keys[source_index * QueryChannels + channel]);
             }
             float score = simd_sum(product) * scale_value[0];
@@ -78,13 +80,16 @@ _NAF_SOURCE = r"""
 def _naf_kernel():
     return mx.fast.metal_kernel(
         name="pixal3d_neighborhood_attention",
-        input_names=["queries", "keys", "values", "scale_value"],
+        input_names=["queries", "keys", "values", "scale_value", "positions"],
         output_names=["output"], source=_NAF_SOURCE,
     )
 
 
 def neighborhood_attention_metal(queries, keys, values, kernel_size, scale,
-                                 dilation=(1, 1), upsample=(1, 1)):
+                                 dilation=(1, 1), upsample=(1, 1), positions=None,
+                                 threadgroup_size=128):
+    if threadgroup_size not in (64, 128, 256):
+        raise ValueError("NAF threadgroup size must be 64, 128, or 256")
     batch, heads, height, width, query_channels = queries.shape
     kernel_height, kernel_width = kernel_size if isinstance(kernel_size, (tuple, list)) else (kernel_size, kernel_size)
     dilation_height, dilation_width = dilation
@@ -103,6 +108,9 @@ def neighborhood_attention_metal(queries, keys, values, kernel_size, scale,
              mx.zeros((), dtype=values.dtype)).dtype
     template = [
         ("OutputType", dtype), ("BatchHeads", batch * heads),
+        ("QueriesPerGroup", threadgroup_size // 32),
+        ("SparseQueries", positions is not None),
+        ("QueryCount", height * width if positions is None else positions.size),
         ("Height", height), ("Width", width),
         ("SourceHeight", source_height), ("SourceWidth", source_width),
         ("QueryChannels", query_channels), ("ValueChannels", values.shape[-1]),
@@ -110,11 +118,19 @@ def neighborhood_attention_metal(queries, keys, values, kernel_size, scale,
         ("DilationHeight", dilation_height), ("DilationWidth", dilation_width),
         ("UpsampleHeight", upsample[0]), ("UpsampleWidth", upsample[1]),
     ]
-    query_count = batch * heads * height * width
+    output_shape = queries.shape[:-1] + (values.shape[-1],)
+    if positions is not None:
+        if positions.ndim != 1 or positions.dtype != mx.int32:
+            raise ValueError("Sparse NAF positions must be a flat int32 array")
+        output_shape = (batch, heads, positions.size, values.shape[-1])
+    query_count = batch * heads * (height * width if positions is None else positions.size)
+    if query_count == 0:
+        return mx.zeros(output_shape, dtype=dtype)
     return _naf_kernel()(
-        inputs=[queries, keys, values, mx.array([scale], dtype=mx.float32)],
-        template=template, grid=(((query_count + 3) // 4) * 128, 1, 1),
-        threadgroup=(128, 1, 1),
-        output_shapes=[queries.shape[:-1] + (values.shape[-1],)],
+        inputs=[queries, keys, values, mx.array([scale], dtype=mx.float32),
+                mx.zeros((0,), dtype=mx.int32) if positions is None else positions],
+        template=template, grid=(((query_count + threadgroup_size // 32 - 1) // (threadgroup_size // 32)) * threadgroup_size, 1, 1),
+        threadgroup=(threadgroup_size, 1, 1),
+        output_shapes=[output_shape],
         output_dtypes=[dtype],
     )[0]

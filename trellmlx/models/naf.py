@@ -100,12 +100,28 @@ def _reflect_pad(x: mx.array, pad: int) -> mx.array:
     return x
 
 
+def _bounded_conv(image, convolution, padding, tile_rows):
+    if not tile_rows or image.shape[1] <= tile_rows:
+        return convolution(_reflect_pad(image, padding))
+    height = image.shape[1]
+    padded = _reflect_pad(image, padding)
+    mx.eval(padded)
+    outputs = []
+    for start in range(0, height, tile_rows):
+        end = min(height, start + tile_rows)
+        output = convolution(padded[:, start:end + 2 * padding])
+        mx.eval(output)
+        outputs.append(output)
+    return mx.concatenate(outputs, axis=1)
+
+
 class EncBlock(nn.Module):
     """Residual conv block with GroupNorm + SiLU + reflect padding."""
 
     def __init__(self, channels: int, kernel_size: int = 3, num_groups: int = 8):
         super().__init__()
         self.pad = kernel_size // 2
+        self.tile_rows = 0
         self.norm1 = nn.GroupNorm(num_groups, channels, pytorch_compatible=True)
         self.conv1 = nn.Conv2d(channels, channels, kernel_size, padding=0)
         self.norm2 = nn.GroupNorm(num_groups, channels, pytorch_compatible=True)
@@ -113,9 +129,11 @@ class EncBlock(nn.Module):
 
     def __call__(self, x: mx.array) -> mx.array:
         h = nn.silu(self.norm1(x))
-        h = self.conv1(_reflect_pad(h, self.pad))
+        h = _bounded_conv(h, self.conv1, self.pad, self.tile_rows)
+        if self.tile_rows:
+            mx.eval(h)
         h = nn.silu(self.norm2(h))
-        h = self.conv2(_reflect_pad(h, self.pad))
+        h = _bounded_conv(h, self.conv2, self.pad, self.tile_rows)
         return h
 
 
@@ -125,10 +143,11 @@ class ReflectConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, bias=True):
         super().__init__()
         self.pad = kernel_size // 2
+        self.tile_rows = 0
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=0, bias=bias)
 
     def __call__(self, x):
-        return self.conv(_reflect_pad(x, self.pad))
+        return _bounded_conv(x, self.conv, self.pad, self.tile_rows)
 
 
 def make_encoder(in_channels: int, out_channels: int, kernel_size: int = 1,
@@ -232,11 +251,12 @@ def neighborhood_attention(q, k, v, kernel_size, scale, dilation=(1, 1)):
 
 
 def fused_neighborhood_attention(queries, keys, values, kernel_size, scale,
-                                 dilation=(1, 1), upsample=(1, 1)):
+                                 dilation=(1, 1), upsample=(1, 1), threadgroup_size=128):
     from ..metal_kernels import neighborhood_attention_metal
 
     return neighborhood_attention_metal(
-        queries, keys, values, kernel_size, scale, dilation=dilation, upsample=upsample)
+        queries, keys, values, kernel_size, scale, dilation=dilation, upsample=upsample,
+        threadgroup_size=threadgroup_size)
 
 
 # ── Cross Attention ──
@@ -255,6 +275,7 @@ class NAFCrossAttention(nn.Module):
         self.kernel_size = kernel_size
         self.scale = (dim // num_heads) ** -0.5
         self.backend = backend
+        self.threadgroup_size = 128
 
     def __call__(self, q, k, v, image=None):
         """
@@ -281,7 +302,7 @@ class NAFCrossAttention(nn.Module):
             upsample = (Hq // Hk, Wq // Wk)
             output = fused_neighborhood_attention(
                 q, keys, values, self.kernel_size, self.scale,
-                dilation=upsample, upsample=upsample)
+                dilation=upsample, upsample=upsample, threadgroup_size=self.threadgroup_size)
             return output.transpose(0, 1, 4, 2, 3).reshape(B, value_channels, Hq, Wq)
         if self.backend not in ("auto", "reference"):
             raise ValueError(f"Unknown NAF backend: {self.backend}")
@@ -341,6 +362,7 @@ class NAF(nn.Module):
     ):
         super().__init__()
         self.dim = dim
+        self.encoder_tile_rows = 128
 
         # Image encoder: dual path (1×1 + 3×3) → concat → pool → RoPE
         self.encoder_1x1 = make_encoder(3, dim // 2, kernel_size=1, ks_res=1, num_layers=img_layers)
@@ -352,7 +374,10 @@ class NAF(nn.Module):
 
     def _run_encoder(self, layers, x):
         for layer in layers:
+            layer.tile_rows = self.encoder_tile_rows
             x = layer(x)
+            if self.encoder_tile_rows:
+                mx.eval(x)
         return x
 
     def _encode_image(self, image, output_size):
@@ -373,6 +398,19 @@ class NAF(nn.Module):
             image = nn.Upsample(scale_factor=target_h / image.shape[1],
                                 mode="linear", align_corners=False)(image)
 
+        if self.encoder_tile_rows:
+            pooled = []
+            for layers in (self.encoder_1x1, self.encoder_3x3):
+                encoded = self._run_encoder(layers, image)
+                batch, height, width, channels = encoded.shape
+                branch = encoded.reshape(batch, oh, height // oh, ow, width // ow, channels).mean(axis=(2, 4))
+                mx.eval(branch)
+                pooled.append(branch)
+                del encoded
+            combined = mx.concatenate(pooled, axis=-1).transpose(0, 3, 1, 2)
+            mx.eval(combined)
+            return self.rope(combined)
+
         # Run encoders in NHWC
         enc_1x1 = self._run_encoder(self.encoder_1x1, image)  # [B, H, W, dim//2]
         enc_3x3 = self._run_encoder(self.encoder_3x3, image)  # [B, H, W, dim//2]
@@ -390,7 +428,7 @@ class NAF(nn.Module):
 
         return x_rope
 
-    def __call__(self, image, features, output_size):
+    def _prepare_attention(self, image, features, output_size):
         """Upsample VFM features using image guidance.
 
         Args:
@@ -421,6 +459,56 @@ class NAF(nn.Module):
         values = features
 
         # Cross-attention with neighborhood masking
-        out = self.upsampler(queries, keys, values)
+        return queries, keys, values
 
-        return out
+    def __call__(self, image, features, output_size):
+        return self.upsampler(*self._prepare_attention(image, features, output_size))
+
+    def project(self, image, features, output_size, queries_ndc, chunk_size=1024):
+        from ..metal_kernels import neighborhood_attention_metal
+        from ..modules.proj_grid import _grid_sample_bilinear
+
+        if chunk_size < 1:
+            raise ValueError("NAF projection chunk size must be positive")
+        if queries_ndc.shape[0] != 1 or image.shape[0] != 1:
+            raise ValueError("Sparse NAF projection currently requires one image")
+        if self.upsampler.backend == "reference" or mx.default_device() != mx.gpu:
+            return _grid_sample_bilinear(self(image, features, output_size), queries_ndc).transpose(0, 2, 1)
+        if queries_ndc.shape[1] == 0:
+            return mx.zeros((1, 0, features.shape[1]), dtype=features.dtype)
+        queries, keys, values = self._prepare_attention(image, features, output_size)
+        heads = self.upsampler.num_heads
+        height, width = output_size
+        source_height, source_width = features.shape[2:]
+        query_channels = queries.shape[1] // heads
+        value_channels = values.shape[1] // heads
+        queries = mx.contiguous(queries.reshape(1, heads, query_channels, height, width).transpose(0, 1, 3, 4, 2))
+        keys = mx.contiguous(keys.reshape(1, heads, query_channels, source_height, source_width).transpose(0, 1, 3, 4, 2))
+        values = mx.contiguous(values.reshape(1, heads, value_channels, source_height, source_width).transpose(0, 1, 3, 4, 2))
+        mx.eval(queries, keys, values)
+        outputs = []
+        upsample = (height // source_height, width // source_width)
+        for start in range(0, queries_ndc.shape[1], chunk_size):
+            grid = queries_ndc[0, start:start + chunk_size]
+            horizontal = (grid[:, 0] + 1) * 0.5 * width - 0.5
+            vertical = (grid[:, 1] + 1) * 0.5 * height - 0.5
+            left = mx.floor(horizontal).astype(mx.int32)
+            top = mx.floor(vertical).astype(mx.int32)
+            horizontal_weight = horizontal - left.astype(mx.float32)
+            vertical_weight = vertical - top.astype(mx.float32)
+            columns = mx.clip(mx.stack([left, left + 1, left, left + 1], axis=1), 0, width - 1)
+            rows = mx.clip(mx.stack([top, top, top + 1, top + 1], axis=1), 0, height - 1)
+            positions = (rows * width + columns).reshape(-1)
+            corners = neighborhood_attention_metal(
+                queries, keys, values, self.upsampler.kernel_size, self.upsampler.scale,
+                dilation=upsample, upsample=upsample, positions=positions,
+                threadgroup_size=self.upsampler.threadgroup_size,
+            ).reshape(1, heads, grid.shape[0], 4, value_channels)
+            first = corners[:, :, :, 0] * (1 - horizontal_weight)[None, None, :, None] * (1 - vertical_weight)[None, None, :, None]
+            second = corners[:, :, :, 1] * horizontal_weight[None, None, :, None] * (1 - vertical_weight)[None, None, :, None]
+            third = corners[:, :, :, 2] * (1 - horizontal_weight)[None, None, :, None] * vertical_weight[None, None, :, None]
+            fourth = corners[:, :, :, 3] * horizontal_weight[None, None, :, None] * vertical_weight[None, None, :, None]
+            output = (first + second + third + fourth).transpose(0, 2, 1, 3).reshape(1, grid.shape[0], heads * value_channels)
+            mx.eval(output)
+            outputs.append(output)
+        return mx.concatenate(outputs, axis=1)

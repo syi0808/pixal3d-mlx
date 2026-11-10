@@ -121,19 +121,17 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             lr_features_bchw = z_spatial.transpose(0, 3, 1, 2)  # [B, D, h, w]
 
             target_h = target_w = self.upsample_target_size
-            hr_features = self.naf_model(image_bchw, lr_features_bchw, (target_h, target_w))
-            mx.eval(hr_features)  # [B, D, H', W']
-
-            # Sample from NAF-upsampled features
-            z_proj_hr = self.proj_grid(
-                hr_features,
-                camera_angle_x,
-                distance,
-                mesh_scale,
-                transform_matrix,
-                BHWC=False,  # NAF output is BCHW
-                coords=coords,
-            )  # [B, R^3, 1024]
+            if coords is not None and hasattr(self.naf_model, "project"):
+                grid = self.proj_grid.project(camera_angle_x, distance, mesh_scale,
+                                              transform_matrix=transform_matrix, coords=coords)
+                z_proj_hr = self.naf_model.project(image_bchw, lr_features_bchw, (target_h, target_w), grid)
+            else:
+                hr_features = self.naf_model(image_bchw, lr_features_bchw, (target_h, target_w))
+                mx.eval(hr_features)
+                z_proj_hr = self.proj_grid(
+                    hr_features, camera_angle_x, distance, mesh_scale,
+                    transform_matrix, BHWC=False, coords=coords,
+                )
 
             # Concatenate LR + HR (matching upstream NAF output format)
             z_proj = mx.concatenate([z_proj_lr, z_proj_hr], axis=-1)  # [B, R^3, 2048]

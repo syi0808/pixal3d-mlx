@@ -55,3 +55,14 @@ def test_cross_attention_uses_fused_backend_without_repeated_keys(monkeypatch, b
     monkeypatch.setattr(mx, "repeat", reject_repeat)
     fused = NAFCrossAttention(8, 2, kernel_size=(3, 3), backend=backend)
     np.testing.assert_allclose(np.array(fused(queries, keys, values)), expected, atol=2e-5, rtol=1e-4)
+
+
+@pytest.mark.parametrize("threadgroup_size", [64, 128, 256])
+def test_naf_threadgroup_sizes_preserve_partial_group_results(threadgroup_size):
+    queries = mx.random.normal((1, 1, 7, 7, 33))
+    keys = mx.random.normal(queries.shape)
+    values = mx.random.normal((1, 1, 7, 7, 35))
+    actual = fused_neighborhood_attention(queries, keys, values, (3, 3), 33 ** -0.5,
+                                          threadgroup_size=threadgroup_size)
+    expected = neighborhood_attention(queries, keys, values, (3, 3), 33 ** -0.5)
+    np.testing.assert_allclose(np.array(actual), np.array(expected), atol=2e-5, rtol=1e-4)
