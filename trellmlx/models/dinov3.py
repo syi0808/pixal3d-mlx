@@ -93,8 +93,10 @@ class DINOv3ViT(nn.Module):
         cos, sin = self._compute_rope(num_h, num_w)
 
         # Transformer
-        for layer in self.layers:
+        for index, layer in enumerate(self.layers):
             x = layer(x, cos, sin, self.num_prefix_tokens)
+            if (index + 1) % 2 == 0:
+                mx.eval(x)
 
         # Final LayerNorm — no-affine, matching TRELLIS.2 training distribution.
         # The checkpoint has learned norm.weight/bias from DINOv3 pretraining,
