@@ -448,6 +448,19 @@ wheels = [
 ]
 
 [[package]]
+name = "moge-mlx"
+version = "0.1.0"
+source = { git = "https://github.com/lyonsno/moge-mlx.git#ffc971973f931655fdfa1eee01b9116b4e046182" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "mlx" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "safetensors" },
+    { name = "scipy" },
+]
+
+[[package]]
 name = "networkx"
 version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -726,6 +739,7 @@ dependencies = [
     { name = "fast-simplification" },
     { name = "huggingface-hub" },
     { name = "mlx" },
+    { name = "moge-mlx" },
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "pillow" },
@@ -748,6 +762,7 @@ requires-dist = [
     { name = "fast-simplification" },
     { name = "huggingface-hub" },
     { name = "mlx", specifier = ">=0.30" },
+    { name = "moge-mlx", git = "https://github.com/lyonsno/moge-mlx.git" },
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "pillow" },
