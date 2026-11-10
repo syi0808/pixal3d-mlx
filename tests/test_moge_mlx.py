@@ -27,9 +27,20 @@ def test_moge_camera_reexports():
     assert callable(_compute_distance_from_fov)
 
 
-def test_moge_camera_reexport_identity():
-    """Re-exports should be the exact same objects, not copies."""
-    from trellmlx.moge_camera import estimate_camera_params_mlx as from_trellmlx
+def test_moge_camera_native_adapter_preserves_upstream_fallback():
+    from trellmlx.moge_camera import _upstream_estimate_camera_params_mlx as from_trellmlx
     from moge_mlx.camera import estimate_camera_params_mlx as from_moge
 
     assert from_trellmlx is from_moge
+
+
+def test_moge_camera_adapter_delegates_when_native_weights_are_missing(tmp_path, monkeypatch):
+    import trellmlx.moge_camera as camera
+
+    monkeypatch.setattr(camera, "NATIVE_CAMERA_WEIGHTS", tmp_path / "absent.safetensors")
+    captured = []
+    monkeypatch.setattr(camera, "_upstream_estimate_camera_params_mlx",
+                        lambda image, **kwargs: captured.append((image, kwargs)) or {"distance": 2.0})
+    result = camera.estimate_camera_params_mlx("image.png", mesh_scale=1.5)
+    assert result == {"distance": 2.0}
+    assert captured[0][1]["mesh_scale"] == 1.5
