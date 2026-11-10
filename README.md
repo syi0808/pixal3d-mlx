@@ -60,9 +60,17 @@ open output.glb
 
 Full Pixal3D pipeline: image → textured GLB with PBR materials (base color, metallic, roughness).
 
+This checkout defaults to 512 resolution and a bounded 10 GB MLX allocation
+budget. It includes sparse NAF projection, GPU sparse topology, static DiT
+conditioning, and an in-process persistent batch engine. See the
+[runtime implementation and measured tradeoffs](docs/runtime-architecture.md).
+
 ```bash
-# Full pipeline (resolution 1024, highest quality):
+# Full pipeline (resolution 512 by default):
 PYTHONPATH=. python generate_pixal3d.py --image photo.png --output mesh.glb
+
+# Opt into 1024 (memory and latency must be validated separately):
+PYTHONPATH=. python generate_pixal3d.py --image photo.png --output mesh.glb --resolution 1024
 
 # Faster run (resolution 512, ~10 min):
 PYTHONPATH=. python generate_pixal3d.py --image photo.png --output mesh.glb --resolution 512

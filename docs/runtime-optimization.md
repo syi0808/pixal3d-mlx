@@ -1,5 +1,9 @@
 # Apple Silicon runtime optimization
 
+This is the initial continuation checkpoint. The current runtime, memory
+controls, sparse NAF projection, persistent batching, and newer measurements
+are documented in [runtime-architecture.md](runtime-architecture.md).
+
 ## Local continuation
 
 Work resumed on 2026-11-10 from the Codex chat **Pixal3D 실행 가능 여부 확인**.
