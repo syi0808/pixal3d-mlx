@@ -1,7 +1,9 @@
 """Opt-in checkpoint replay for decoder memory research; production paths stay unchanged."""
 
 import argparse
+from dataclasses import asdict
 import gc
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -106,14 +108,16 @@ def prepare_latent(arguments):
     started = time.perf_counter()
     latent = flow_euler_sample(model, noise, cond, negative, steps=12, guidance_strength=1.0,
                                guidance_rescale=0.0, guidance_interval=(0.6, 0.9), rescale_t=3.0,
-                               verbose=False, coords=mx.array(coordinates[:, 1:]), concat_cond=_normalize_slat(shape))
+                               verbose=False, coords=mx.array(coordinates[:, 1:]), concat_cond=_normalize_slat(shape),
+                               conditioning_cache_bytes=int(arguments.conditioning_cache_mb * 1024 ** 2))
     latent = _denormalize_slat(latent, mean=TEX_SLAT_MEAN, std=TEX_SLAT_STD)
     mx.eval(latent)
     arguments.latent.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(arguments.latent, latent=np.array(latent), coordinates=coordinates)
     print(json.dumps({"saved": str(arguments.latent), "sampling_seconds": time.perf_counter() - started,
                       "peak_mlx_bytes": mx.get_peak_memory(), "seed": arguments.seed,
-                      "resolution": resolution, "flow_mixed": arguments.flow_mixed}, indent=2), flush=True)
+                      "resolution": resolution, "flow_mixed": arguments.flow_mixed,
+                      "conditioning_cache_mb": arguments.conditioning_cache_mb}, indent=2), flush=True)
 
 
 def decode(arguments):
@@ -134,6 +138,11 @@ def decode(arguments):
         "early-topology": DecoderExperiment(early_topology=True),
         "fused-skip": DecoderExperiment(fused_skip=True),
         "terminal-chunked": DecoderExperiment(terminal_chunk_size=arguments.chunk_size),
+        "bounded-conv": DecoderExperiment(convolution_eval_interval=arguments.convolution_eval_interval),
+        "bounded-phased": DecoderExperiment(convolution_eval_interval=arguments.convolution_eval_interval,
+                                            phase_barriers=True),
+        "bounded-final": DecoderExperiment(convolution_eval_interval=arguments.convolution_eval_interval,
+                                           bounded_final_projection_only=True),
         "combined": DecoderExperiment(phase_barriers=True, early_topology=True, fused_skip=True,
                                        terminal_chunk_size=arguments.chunk_size),
     }[arguments.variant]
@@ -152,11 +161,15 @@ def decode(arguments):
     elapsed = time.perf_counter() - recorder.started
     recorder.record("decode_complete", rows=output.shape[0])
     report = {"variant": arguments.variant, "resident_shape": arguments.resident_shape,
+              "convolution_eval_interval": options.convolution_eval_interval,
+              "experiment": asdict(options), "frozen_latent": str(arguments.latent),
+              "frozen_latent_sha256": hashlib.sha256(arguments.latent.read_bytes()).hexdigest(),
               "decoder_seconds": elapsed, "peak_mlx_bytes": mx.get_peak_memory(),
               "parameter_bytes": sum(value.nbytes for _, value in mlx.utils.tree_flatten(model.parameters())),
               "resident_shape_parameter_bytes": 0 if resident_shape is None else sum(value.nbytes for _, value in mlx.utils.tree_flatten(resident_shape.parameters())),
               "events": recorder.events, "mlx_version": mx.__version__, "device": mx.device_info(),
-              "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()}
+              "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())}
     transformed = np.array(output * 0.5 + 0.5)
     actual_coordinates = np.array(output_coordinates)
     with np.load(arguments.checkpoints / "texture.npz") as expected:
@@ -166,30 +179,60 @@ def decode(arguments):
             "max_absolute_error": float(np.max(np.abs(difference))),
             "mean_absolute_error": float(np.mean(np.abs(difference))),
             "root_mean_squared_error": float(np.sqrt(np.mean(difference ** 2))),
+            "all_finite": bool(np.isfinite(transformed).all()),
+            "per_channel_mean_absolute_error": np.mean(np.abs(difference), axis=0).tolist(),
+            "per_channel_root_mean_squared_error": np.sqrt(np.mean(difference ** 2, axis=0)).tolist(),
         }
     arguments.report.parent.mkdir(parents=True, exist_ok=True)
     arguments.report.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({name: value for name, value in report.items() if name != "events"}, indent=2), flush=True)
 
 
+def audit_dtypes(arguments):
+    from trellmlx.models.pixal3d_flow import ProjModulatedBlock
+    from trellmlx.modules.rope import apply_rope
+
+    block = ProjModulatedBlock(24, 1, 8, 32, 8)
+    block.apply(lambda value: value.astype(mx.float16))
+    features = mx.zeros((4, 24), dtype=mx.float16)
+    phases = mx.zeros((4, 12, 2), dtype=mx.float32)
+    query = mx.zeros((4, 1, 24), dtype=mx.float16)
+    context = {"global": mx.zeros((1, 5, 8), dtype=mx.float16),
+               "proj": mx.zeros((4, 8), dtype=mx.float16)}
+    output = block(features, mx.zeros((144,), dtype=mx.float16), context, rope_phases=phases)
+    report = {"mlx_version": mx.__version__, "audit": "symbolic dtype propagation; not a latency benchmark",
+              "activation_dtype": str(features.dtype), "phase_dtype": str(phases.dtype),
+              "rotated_query_dtype": str(apply_rope(query, phases).dtype),
+              "self_attention_without_rope_dtype": str(block.self_attn(features).dtype),
+              "self_attention_with_rope_dtype": str(block.self_attn(features, rope_phases=phases).dtype),
+              "block_output_dtype": str(output.dtype)}
+    arguments.report.parent.mkdir(parents=True, exist_ok=True)
+    arguments.report.write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["prepare", "decode"])
+    parser.add_argument("mode", choices=["prepare", "decode", "audit"])
     parser.add_argument("--checkpoints", type=Path, default=Path("outputs/runtime/e2e1024-native/checkpoints"))
     parser.add_argument("--image", default="outputs/runtime/e2e1024-native/shoe_preprocessed.png")
     parser.add_argument("--latent", type=Path, default=Path("outputs/runtime/decoder-investigation/texture-latent.npz"))
     parser.add_argument("--report", type=Path, default=Path("outputs/runtime/decoder-investigation/reference.json"))
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--variant", choices=["reference", "phased", "early-topology", "fused-skip", "terminal-chunked", "combined"], default="reference")
+    parser.add_argument("--variant", choices=["reference", "phased", "early-topology", "fused-skip", "terminal-chunked", "combined", "bounded-conv", "bounded-phased", "bounded-final"], default="reference")
     parser.add_argument("--chunk-size", type=int, default=65536)
+    parser.add_argument("--convolution-eval-interval", type=int, default=1)
     parser.add_argument("--resident-shape", action="store_true")
     parser.add_argument("--flow-mixed", action="store_true")
+    parser.add_argument("--conditioning-cache-mb", type=float, default=128.0)
     arguments = parser.parse_args()
     with InferenceRuntime(model_cache_bytes=0, feature_cache_bytes=0):
         if arguments.mode == "prepare":
             prepare_latent(arguments)
-        else:
+        elif arguments.mode == "decode":
             decode(arguments)
+        else:
+            audit_dtypes(arguments)
 
 
 if __name__ == "__main__":

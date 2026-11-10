@@ -26,6 +26,10 @@ def test_fused_skip_preserves_channel_repeat_order(parent_channels, output_chann
     DecoderExperiment(early_topology=True),
     DecoderExperiment(fused_skip=True),
     DecoderExperiment(terminal_chunk_size=3),
+    DecoderExperiment(convolution_eval_interval=1),
+    DecoderExperiment(convolution_eval_interval=3),
+    DecoderExperiment(convolution_eval_interval=9, phase_barriers=True),
+    DecoderExperiment(convolution_eval_interval=3, bounded_final_projection_only=True),
     DecoderExperiment(phase_barriers=True, early_topology=True, fused_skip=True, terminal_chunk_size=3),
 ])
 def test_decoder_ablation_preserves_weights_coordinates_and_values(options):

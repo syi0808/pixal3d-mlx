@@ -7,7 +7,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from .models.shape_slat_decoder import SLatDecoder, SparseChannel2Spatial, SparseResBlockC2S3d, _layernorm_noaffine
-from .modules.sparse_conv import build_neighbor_map
+from .modules.sparse_conv import NeighborMap, SparseConv3d, build_neighbor_map
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,30 @@ class DecoderExperiment:
     early_topology: bool = False
     fused_skip: bool = False
     terminal_chunk_size: int = 0
+    convolution_eval_interval: int = 0
+    bounded_final_projection_only: bool = False
+
+
+class BoundedSparseConv3d(SparseConv3d):
+    def __init__(self, in_channels, out_channels, kernel_size=3, eval_interval=1):
+        super().__init__(in_channels, out_channels, kernel_size)
+        if eval_interval <= 0:
+            raise ValueError("Convolution evaluation interval must be positive")
+        self.eval_interval = eval_interval
+
+    def __call__(self, feats, neighbor_map):
+        if not isinstance(neighbor_map, NeighborMap):
+            raise ValueError("Bounded convolution requires grouped neighbor indices")
+        weights = self.weight.reshape(self.out_channels, self.kernel_size ** 3, self.in_channels).transpose(1, 2, 0)
+        output = mx.zeros((feats.shape[0], self.out_channels))
+        for kernel_index, (sources, targets) in enumerate(neighbor_map.groups):
+            if sources.size:
+                edge_output = feats[sources] @ weights[kernel_index]
+                output = output.at[targets].add(edge_output)
+                del edge_output
+            if (kernel_index + 1) % self.eval_interval == 0:
+                mx.eval(output)
+        return output + self.bias
 
 
 @lru_cache(maxsize=1)
@@ -127,6 +151,8 @@ class ResearchDecoder(SLatDecoder):
         super().__init__(**kwargs)
         if experiment.terminal_chunk_size < 0:
             raise ValueError("Terminal chunk size cannot be negative")
+        if experiment.convolution_eval_interval < 0:
+            raise ValueError("Convolution evaluation interval cannot be negative")
         object.__setattr__(self, "experiment", experiment)
         object.__setattr__(self, "record", record)
         for level_index, level in enumerate(self.blocks):
@@ -134,6 +160,16 @@ class ResearchDecoder(SLatDecoder):
                 if isinstance(block, SparseResBlockC2S3d):
                     level[block_index] = ResearchUpsampleBlock(block.channels, block.out_channels, block.pred_subdiv,
                                                               experiment, record, f"level_{level_index}")
+                if experiment.convolution_eval_interval:
+                    current_block = level[block_index]
+                    for name, convolution in list(current_block.items()):
+                        if experiment.bounded_final_projection_only and not (
+                            level_index == len(self.blocks) - 2 and isinstance(current_block, SparseResBlockC2S3d) and name == "conv1"
+                        ):
+                            continue
+                        if isinstance(convolution, SparseConv3d):
+                            current_block[name] = BoundedSparseConv3d(convolution.in_channels, convolution.out_channels,
+                                                                     convolution.kernel_size, experiment.convolution_eval_interval)
 
     def __call__(self, feats, coords, guide_subs=None, return_subs=False):
         chunk_size = self.experiment.terminal_chunk_size
