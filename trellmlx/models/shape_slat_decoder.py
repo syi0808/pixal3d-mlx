@@ -192,6 +192,7 @@ class SLatDecoder(nn.Module):
         model_channels: list = None,
         num_blocks: list = None,
         pred_subdiv: bool = True,
+        spatial_order: str = "preserve",
     ):
         super().__init__()
         if model_channels is None:
@@ -202,6 +203,9 @@ class SLatDecoder(nn.Module):
         self.model_channels = model_channels
         self.num_blocks = num_blocks
         self.pred_subdiv = pred_subdiv
+        if spatial_order not in ("preserve", "morton"):
+            raise ValueError(f"Unknown sparse spatial order: {spatial_order}")
+        self.spatial_order = spatial_order
 
         self.from_latent = nn.Linear(latent_channels, model_channels[0])
         self.output_layer = nn.Linear(model_channels[-1], out_channels)
@@ -279,6 +283,7 @@ class SLatDecoder(nn.Module):
         Returns:
             hr_coords: [N', 4] upsampled coordinates
         """
+        feats, coords = self._order_input(feats, coords)
         feats = self.from_latent(feats)
         _, hr_coords = self._forward_levels(feats, coords,
                                             stop_after=upsample_times)
@@ -296,6 +301,7 @@ class SLatDecoder(nn.Module):
         Returns:
             (out_feats, out_coords) or (out_feats, out_coords, subs) if return_subs
         """
+        feats, coords = self._order_input(feats, coords)
         feats = self.from_latent(feats)
         result = self._forward_levels(feats, coords, guide_subs=guide_subs,
                                        return_subs=return_subs)
@@ -311,6 +317,14 @@ class SLatDecoder(nn.Module):
         if return_subs:
             return out, coords, subs
         return out, coords
+
+    def _order_input(self, feats, coords):
+        if self.spatial_order == "morton" and coords.shape[0]:
+            from ..sparse_runtime import morton_permutation
+
+            order = morton_permutation(coords)
+            return feats[order], coords[order]
+        return feats, coords
 
 
 # Backwards-compatible alias

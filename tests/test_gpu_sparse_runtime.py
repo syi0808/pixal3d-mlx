@@ -50,3 +50,25 @@ def test_gpu_subdivision_order_and_morton_order():
     restored = children[permutation][mx.argsort(permutation)]
     np.testing.assert_array_equal(np.array(restored), expected)
     assert np.all(np.array(children[permutation])[:4, 0] == 0)
+
+
+def test_morton_decoder_preserves_features_at_each_coordinate():
+    from trellmlx.models.shape_slat_decoder import SLatDecoder
+
+    model = SLatDecoder(out_channels=7, latent_channels=8, model_channels=[16, 8], num_blocks=[0, 0])
+    coordinates = mx.array([[0, 0, 0, 1], [0, 1, 0, 0]])
+    features = mx.random.normal((2, 8))
+    expected, expected_coordinates = model(features, coordinates)
+    mx.eval(expected, expected_coordinates)
+    model.spatial_order = "morton"
+    actual, actual_coordinates = model(features, coordinates)
+
+    def ordered(values, coords):
+        coords = np.array(coords)
+        order = np.lexsort(tuple(coords[:, axis] for axis in reversed(range(4))))
+        return np.array(values)[order], coords[order]
+
+    expected, expected_coordinates = ordered(expected, expected_coordinates)
+    actual, actual_coordinates = ordered(actual, actual_coordinates)
+    np.testing.assert_array_equal(actual_coordinates, expected_coordinates)
+    np.testing.assert_allclose(actual, expected, rtol=2e-4, atol=1e-5)
