@@ -19,6 +19,7 @@ from scripts.download_models import DINO_REVISION, PIXAL_REVISION
 from trellmlx.checkpoint import load_checkpoint
 from trellmlx.conditioning import ZeroConditioning, prepare_sampling
 from trellmlx.models.pixal3d_flow import Pixal3DSLatFlowModel, Pixal3DSparseStructureFlowModel
+from trellmlx.models.sparse_structure_flow import _layernorm_noaffine
 from trellmlx.runtime import InferenceRuntime
 from trellmlx.samplers import flow_euler_sample
 from trellmlx.transformer_experiments import VARIANTS, configure_transformer
@@ -111,6 +112,46 @@ def decode_structure(latent, checkpoints):
             "intersection_over_union": float(np.logical_and(actual, expected).sum() / max(1, union))}, coordinates
 
 
+def profile_first_block(model, noise, cond, negative, options, repeats):
+    positive, negative, kwargs, contexts = prepare_sampling(model, noise, cond, negative, {}, options.cache_bytes)
+    block = model.blocks[0]
+    features = model.input_layer(noise.reshape(1, 8, -1).transpose(0, 2, 1).reshape(-1, 8))
+    base_modulation = model.adaLN_modulation(model.t_embedder(mx.array([1000.0], dtype=mx.float32)))[0]
+    shift_attn, scale_attn, gate_attn, shift_mlp, scale_mlp, gate_mlp = mx.split(base_modulation + block.modulation, 6)
+    attention_input = _layernorm_noaffine(features) * (1 + scale_attn) + shift_attn
+    attention_output = block.self_attn(attention_input, rope_phases=kwargs["rope_phases"])
+    residual = features + attention_output * gate_attn
+    cross_output = block.cross_attn(block.norm2(residual), positive)
+    cross_residual = residual + cross_output
+    ffn_input = _layernorm_noaffine(cross_residual) * (1 + scale_mlp) + shift_mlp
+    mx.eval(features, base_modulation, attention_input, attention_output, residual, cross_output, cross_residual, ffn_input)
+    functions = {
+        "ada_ln": lambda: _layernorm_noaffine(features) * (1 + scale_attn) + shift_attn,
+        "self_attention": lambda: block.self_attn(attention_input, rope_phases=kwargs["rope_phases"]),
+        "attention_gated_residual": lambda: features + attention_output * gate_attn,
+        "cross_attention_cached_projection": lambda: block.cross_attn(block.norm2(residual), positive),
+        "ffn": lambda: block.mlp(ffn_input),
+        "whole_block": lambda: block(features, base_modulation, positive, rope_phases=kwargs["rope_phases"]),
+    }
+    measurements = {}
+    try:
+        for name, function in functions.items():
+            mx.eval(function())
+            timings = []
+            for iteration in range(repeats):
+                started = time.perf_counter()
+                output = function()
+                mx.eval(output)
+                mx.synchronize()
+                timings.append(time.perf_counter() - started)
+            measurements[name] = {"median_seconds": statistics.median(timings), "seconds": timings}
+    finally:
+        for context in contexts:
+            context.clear_invariants()
+    return output, {"component_measurements": measurements,
+                    "scope": "first conditional SS block; warm fixed inputs and projection cache; separate evaluation boundaries"}
+
+
 def run(arguments):
     provenance = {"revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
                   "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
@@ -133,7 +174,9 @@ def run(arguments):
     gc.collect()
     mx.clear_cache()
     mx.reset_peak_memory()
-    if arguments.mode == "screen":
+    if arguments.mode == "profile":
+        output, timing_info = profile_first_block(model, noise, cond, negative, options, arguments.repeats)
+    elif arguments.mode == "screen":
         positive, negative, kwargs, contexts = prepare_sampling(model, noise, cond, negative, kwargs, options.cache_bytes)
         timestep = mx.array([1000.0], dtype=mx.float32)
         modulation = model.adaLN_modulation(model.t_embedder(timestep))
@@ -204,7 +247,7 @@ def run(arguments):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["prepare", "screen", "sample"])
+    parser.add_argument("mode", choices=["prepare", "screen", "sample", "profile"])
     parser.add_argument("--stage", choices=["ss", "hr", "texture"], default="ss")
     parser.add_argument("--variant", choices=list(VARIANTS), default="reference")
     parser.add_argument("--inputs", type=Path)
@@ -220,6 +263,8 @@ def main():
         arguments.inputs = Path("outputs/runtime/sampling-investigation") / (arguments.stage + "-inputs.npz")
     if arguments.repeats < 1:
         parser.error("Screen repeats must be positive")
+    if arguments.mode == "profile" and arguments.stage != "ss":
+        parser.error("Component profiling currently uses the dense SS block")
     if arguments.mode != "prepare" and (arguments.report.exists() or arguments.save_latent and arguments.save_latent.exists()):
         parser.error("Refusing to overwrite sampling evidence")
     with InferenceRuntime(model_cache_bytes=0, feature_cache_bytes=0):
