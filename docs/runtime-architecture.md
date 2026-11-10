@@ -5,6 +5,9 @@ geometry token selection, and the 12-step sampling schedules unchanged by
 default. It does not implement distillation, local attention substitution,
 token pruning, or automatic precision reductions.
 
+The completed native-MoGe 1024 experiment, including process footprint, swap,
+and pressure measurements, is documented in [1024-validation.md](1024-validation.md).
+
 ## Execution and memory ownership
 
 `trellmlx.runtime.StageGraph` compiles explicit stage dependencies, prunes dead
@@ -16,8 +19,9 @@ arbitrary Python or the entire neural network.
 
 The main and checkpoint-resume entrypoints share `InferenceRuntime`:
 
-- A default **10,000,000,000-byte MLX allocation limit**, restored when the
-  runtime closes. Limits above Metal's recommended working set are rejected.
+- A default **10,000,000,000-byte MLX graph-evaluation guideline**, restored when
+  the runtime closes. This is not a hard allocation cap. Configured guidelines
+  above Metal's recommended working set are rejected.
 - Bounded LRU model and feature caches, with oversized entries bypassed rather
   than admitted. Checkpoint fingerprints include file size and modification
   time; decoder cache identities also include spatial ordering.
@@ -31,11 +35,14 @@ The main and checkpoint-resume entrypoints share `InferenceRuntime`:
   Legacy FP32-to-FP16 rounding is preserved, including when a tensor is then
   upcast for the stable FP32 sparse-structure stage.
 
-The limit applies to MLX allocations, **not** all process RSS, NumPy arrays,
-ONNX sessions, file-backed pages, or system memory. Exceeding the allocation
-budget produces an error; setting a 10 GB budget does not prove every 512
-input can complete within it. There is no CPU-offload claim that expands
-physical unified memory. See [MLX memory management](https://ml-explore.github.io/mlx/build/html/python/memory_management.html).
+The setting guides MLX graph evaluation; it does **not** guarantee either an
+MLX allocation ceiling or a process memory ceiling. Allocations may exceed it
+when RAM or swap remains available. The native 1024 run measured 11.44 GB peak
+MLX allocation despite a 10 GB setting. RSS, NumPy arrays, ONNX sessions,
+file-backed pages, and system memory require separate accounting. There is no
+CPU-offload claim that expands physical unified memory. See
+[the MLX API contract](https://ml-explore.github.io/mlx/build/html/python/_autosummary/mlx.core.set_memory_limit.html).
+Reports now explicitly mark the guideline as non-hard and record overshoot.
 
 Buffer reuse is handled by MLX's bounded allocator pool plus shorter live
 ranges and bounded operation sizes. There is no custom alias-aware raw-buffer
@@ -166,14 +173,15 @@ PYTHONPATH=. .venv/bin/python scripts/benchmark_architecture.py --output outputs
 
 Raw reports include revision, working-tree state, per-repeat times, and device
 metadata. Benchmark inputs remain synthetic even when checkpoint weights are
-real. Full-pipeline quality, 1024 memory feasibility, and multi-asset throughput
-require separate validation.
+real. Full-pipeline quality and multi-asset throughput require separate
+validation. A completed single-input 1024 memory experiment is now available
+in [1024-validation.md](1024-validation.md).
 
 ## Completed 512 generation
 
 An actual `assets/shoe_input.png` generation completed with pretrained weights,
 the normal 12-step schedules, FP32 SS, no weight quantization, and a 10 GB MLX
-limit:
+evaluation guideline:
 
 | Measurement | Observed |
 | --- | ---: |
@@ -238,5 +246,6 @@ may exceed this machine's memory budget; use small controlled comparisons.
 the same applicable controls and runs in-process.
 
 The default generation resolution is now 512. Neither resolution nor sampling
-steps are silently reduced to rescue an allocation failure. The existing
-explicit `--max-tokens` behavior is unchanged.
+steps are silently reduced to rescue an allocation failure. A memory guideline
+is not a watchdog; use `scripts/measure_generation.py` for external process and
+system-pressure guards. The existing explicit `--max-tokens` behavior is unchanged.

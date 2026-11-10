@@ -60,8 +60,8 @@ open output.glb
 
 Full Pixal3D pipeline: image → textured GLB with PBR materials (base color, metallic, roughness).
 
-This checkout defaults to 512 resolution and a bounded 10 GB MLX allocation
-budget. It includes sparse NAF projection, GPU sparse topology, static DiT
+This checkout defaults to 512 resolution and a 10 GB MLX evaluation guideline,
+not a hard allocation cap. It includes sparse NAF projection, GPU sparse topology, static DiT
 conditioning, and an in-process persistent batch engine. See the
 [runtime implementation and measured tradeoffs](docs/runtime-architecture.md).
 
