@@ -127,16 +127,27 @@ class FeedForward(nn.Module):
         self.mlp_0 = nn.Linear(dim, hidden_dim)
         self.mlp_2 = nn.Linear(hidden_dim, dim)
         self.chunk_size = 0
+        self.selective_compile = False
+
+    def _chunk(self, features):
+        if self.selective_compile and all(
+            isinstance(layer, nn.Linear) and "bias" in layer and mx.issubdtype(layer.weight.dtype, mx.floating)
+            for layer in (self.mlp_0, self.mlp_2)
+        ):
+            from ..transformer_runtime import compiled_ffn
+
+            return compiled_ffn()(features, self.mlp_0.weight, self.mlp_0.bias, self.mlp_2.weight, self.mlp_2.bias)
+        return self.mlp_2(nn.gelu_approx(self.mlp_0(features)))
 
     def __call__(self, x: mx.array) -> mx.array:
         if self.chunk_size and x.ndim == 2 and x.shape[0] > self.chunk_size:
             outputs = []
             for start in range(0, x.shape[0], self.chunk_size):
-                output = self.mlp_2(nn.gelu_approx(self.mlp_0(x[start:start + self.chunk_size])))
+                output = self._chunk(x[start:start + self.chunk_size])
                 mx.eval(output)
                 outputs.append(output)
             return mx.concatenate(outputs, axis=0)
-        return self.mlp_2(nn.gelu_approx(self.mlp_0(x)))
+        return self._chunk(x)
 
 
 class ModulatedBlock(nn.Module):

@@ -58,6 +58,7 @@ def flow_euler_sample(
     conditioning_cache_bytes: int = 128 * 1024 * 1024,
     ffn_chunk_size: int = 2048,
     compile_step: bool = False,
+    selective_compile: bool = False,
     **model_kwargs,
 ):
     """Generate samples using flow-matching Euler sampling with CFG.
@@ -79,9 +80,11 @@ def flow_euler_sample(
         Final denoised sample, same shape as noise.
     """
     from .conditioning import prepare_sampling
+    from .transformer_runtime import configure_selective_compile
 
     if steps < 1 or ffn_chunk_size < 0:
         raise ValueError("Sampler steps must be positive and FFN chunk size nonnegative")
+    configure_selective_compile(model, selective_compile)
     sample = noise
     for block in getattr(model, "blocks", []):
         if hasattr(block, "mlp") and hasattr(block.mlp, "chunk_size"):

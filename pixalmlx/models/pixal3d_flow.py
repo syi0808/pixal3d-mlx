@@ -50,6 +50,7 @@ class ProjModulatedBlock(nn.Module):
     ):
         super().__init__()
         self.channels = channels
+        self.selective_compile = False
 
         # Self-attention
         self.self_attn = MultiHeadAttention(channels, num_heads)
@@ -64,6 +65,20 @@ class ProjModulatedBlock(nn.Module):
 
         # Per-block learned modulation bias
         self.modulation = mx.zeros((6 * channels,))
+
+    def _modulate(self, features, scale, shift):
+        if self.selective_compile:
+            from ..transformer_runtime import compiled_modulation
+
+            return compiled_modulation()(features, scale, shift)
+        return _layernorm_noaffine(features) * (1 + scale) + shift
+
+    def _gated_residual(self, features, hidden, gate):
+        if self.selective_compile:
+            from ..transformer_runtime import compiled_gated_residual
+
+            return compiled_gated_residual()(features, hidden, gate)
+        return features + hidden * gate
 
     def __call__(
         self,
@@ -83,11 +98,9 @@ class ProjModulatedBlock(nn.Module):
         gate_mlp  = mod[5*C:6*C]
 
         # Self-attention with adaLN-Zero + RoPE
-        h = _layernorm_noaffine(x)
-        h = h * (1 + scale_msa) + shift_msa
+        h = self._modulate(x, scale_msa, shift_msa)
         h = self.self_attn(h, rope_phases=rope_phases)
-        h = h * gate_msa
-        x = x + h
+        x = self._gated_residual(x, h, gate_msa)
 
         # Cross-attention with projection
         h = self.norm2(x)
@@ -95,11 +108,9 @@ class ProjModulatedBlock(nn.Module):
         x = x + h
 
         # FFN with adaLN-Zero
-        h = _layernorm_noaffine(x)
-        h = h * (1 + scale_mlp) + shift_mlp
+        h = self._modulate(x, scale_mlp, shift_mlp)
         h = self.mlp(h)
-        h = h * gate_mlp
-        x = x + h
+        x = self._gated_residual(x, h, gate_mlp)
 
         return x
 

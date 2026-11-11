@@ -60,6 +60,8 @@ def main(argv=None, runtime=None):
     parser.add_argument("--quantize", type=int, choices=[0, 4, 8], default=0)
     parser.add_argument("--dense-conditioning", action="store_true")
     parser.add_argument("--compile-step", action="store_true")
+    parser.add_argument("--compile-transformer", action=argparse.BooleanOptionalAction, default=True,
+                        help="Compile bounded FFN and modulation/residual operations (default: enabled)")
     parser.add_argument("--runtime-report")
     args = parser.parse_args(argv)
     if min(args.feature_cache_mb, args.conditioning_cache_mb, args.ffn_chunk_size, args.naf_tile_rows,
@@ -249,6 +251,7 @@ def _resume(args, runtime):
         concat_cond=shape_cond,
         conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
         ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
+        selective_compile=args.compile_transformer,
         **TEX_SAMPLER,
     )
     mx.eval(tex_slat)

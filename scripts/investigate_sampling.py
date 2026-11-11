@@ -23,6 +23,7 @@ from pixalmlx.models.sparse_structure_flow import _layernorm_noaffine
 from pixalmlx.runtime import InferenceRuntime
 from pixalmlx.samplers import flow_euler_sample
 from pixalmlx.transformer_experiments import VARIANTS, configure_transformer
+from pixalmlx.transformer_runtime import configure_selective_compile
 from pixalmlx.weight_loader import load_weights
 
 
@@ -157,8 +158,11 @@ def run(arguments):
                   "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
                   "source_sha256": {name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
                                     for name in ("scripts/investigate_sampling.py", "pixalmlx/transformer_experiments.py",
-                                                 "pixalmlx/samplers.py", "pixalmlx/models/pixal3d_flow.py")}}
-    options = VARIANTS[arguments.variant]
+                                                 "pixalmlx/transformer_runtime.py", "pixalmlx/samplers.py",
+                                                 "pixalmlx/models/sparse_structure_flow.py", "pixalmlx/models/pixal3d_flow.py")}}
+    production = arguments.variant.startswith("production-")
+    selective_compile = arguments.variant == "production-selective"
+    options = VARIANTS["reference" if production else arguments.variant]
     metadata = json.loads(arguments.inputs.with_suffix(".json").read_text())
     if metadata["stage"] != arguments.stage:
         raise ValueError("Frozen input stage does not match the requested model")
@@ -168,7 +172,13 @@ def run(arguments):
     negative = ZeroConditioning({name: mx.zeros_like(value) for name, value in cond.items()})
     kwargs = {name: values[name] for name in ("coords", "concat_cond") if name in values}
     noise = values["noise"]
-    model = configure_transformer(load_model(arguments.stage), options)
+    model = load_model(arguments.stage)
+    if production:
+        for block in model.blocks:
+            block.mlp.chunk_size = options.ffn_chunk_size
+        configure_selective_compile(model, selective_compile)
+    else:
+        model = configure_transformer(model, options)
     mx.eval(model.parameters(), values)
     parameter_bytes = sum(value.nbytes for _, value in mlx.utils.tree_flatten(model.parameters()))
     gc.collect()
@@ -206,6 +216,7 @@ def run(arguments):
         output = flow_euler_sample(model, noise, cond, negative, steps=arguments.steps, verbose=False,
                                    guidance_interval=(0.6, 0.9) if arguments.stage == "texture" else (0.6, 1.0),
                                    conditioning_cache_bytes=options.cache_bytes, ffn_chunk_size=options.ffn_chunk_size,
+                                   selective_compile=selective_compile,
                                    **parameters, **kwargs)
         mx.eval(output)
         mx.synchronize()
@@ -214,6 +225,7 @@ def run(arguments):
     peak = mx.get_peak_memory()
     host = np.array(output)
     report = {"stage": arguments.stage, "variant": arguments.variant, "mode": arguments.mode,
+              "selective_compile": selective_compile,
               "options": asdict(options), **timing_info, "peak_mlx_bytes": peak,
               "parameter_bytes": parameter_bytes, "output_shape": list(host.shape), "all_finite": bool(np.isfinite(host).all()),
               "output_sha256": hashlib.sha256(np.ascontiguousarray(host)).hexdigest(),
@@ -247,9 +259,9 @@ def run(arguments):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["prepare", "screen", "sample", "profile"])
+    parser.add_argument("mode", choices=["prepare", "screen", "sample", "profile", "time"])
     parser.add_argument("--stage", choices=["ss", "hr", "texture"], default="ss")
-    parser.add_argument("--variant", choices=list(VARIANTS), default="reference")
+    parser.add_argument("--variant", choices=[*VARIANTS, "production-reference", "production-selective"], default="reference")
     parser.add_argument("--inputs", type=Path)
     parser.add_argument("--report", type=Path, default=Path("outputs/runtime/sampling-investigation/report.json"))
     parser.add_argument("--checkpoints", type=Path, default=Path("outputs/turnip512/checkpoints"))

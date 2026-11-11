@@ -346,6 +346,8 @@ def main(argv=None, runtime=None):
     parser.add_argument("--naf-tile-rows", type=int, default=128)
     parser.add_argument("--naf-threads", type=int, choices=[64, 128, 256], default=128)
     parser.add_argument("--compile-step", action="store_true")
+    parser.add_argument("--compile-transformer", action=argparse.BooleanOptionalAction, default=True,
+                        help="Compile bounded FFN and modulation/residual operations (default: enabled)")
     parser.add_argument("--sparse-order", choices=["preserve", "morton"], default="morton")
     parser.add_argument("--decoder-eval-interval", type=int, default=1,
                         help="Evaluate every N sparse kernels in the final shape/texture upsample (0=legacy)")
@@ -385,6 +387,7 @@ def main(argv=None, runtime=None):
             cmd.extend(["--runtime-report", args.runtime_report])
         if args.compile_step:
             cmd.append("--compile-step")
+        cmd.append("--compile-transformer" if args.compile_transformer else "--no-compile-transformer")
         if args.dense_conditioning:
             cmd.append("--dense-conditioning")
         if args.no_rembg:
@@ -529,6 +532,7 @@ def _generate(args, runtime):
                             cast_conditioning_to_dtype(ss_neg_cond, ss_dtype),
                             conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
                             ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
+                            selective_compile=args.compile_transformer,
                             verbose=False, **SS_SAMPLER)
     mx.eval(z_s)
     print(f"  Sampled: {time.perf_counter()-t0:.1f}s", flush=True)
@@ -639,6 +643,7 @@ def _generate(args, runtime):
         verbose=False, coords=mx.array(lr_coords),
         conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
         ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
+        selective_compile=args.compile_transformer,
         **SHAPE_SAMPLER,
     )
     mx.eval(lr_slat)
@@ -735,6 +740,7 @@ def _generate(args, runtime):
         verbose=False, coords=mx.array(hr_coords_3d),
         conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
         ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
+        selective_compile=args.compile_transformer,
         **SHAPE_SAMPLER,
     )
     mx.eval(hr_slat)
@@ -866,6 +872,7 @@ def _generate(args, runtime):
         concat_cond=shape_cond,
         conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
         ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
+        selective_compile=args.compile_transformer,
         **TEX_SAMPLER,
     )
     mx.eval(tex_slat)

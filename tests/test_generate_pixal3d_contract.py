@@ -15,7 +15,8 @@ class ReachedSampler(Exception):
 
 
 @pytest.mark.parametrize("bits", [0, 4, 8])
-def test_ss_entrypoint_preserves_conditioning_and_packed_weights(monkeypatch, bits):
+@pytest.mark.parametrize("selective_compile", [True, False])
+def test_ss_entrypoint_preserves_conditioning_and_packed_weights(monkeypatch, bits, selective_compile):
     """The actual CLI must deliver fp32 context and executable packed weights."""
     import pixalmlx.models.dinov3 as dinov3
     import pixalmlx.models.naf as naf
@@ -45,6 +46,7 @@ def test_ss_entrypoint_preserves_conditioning_and_packed_weights(monkeypatch, bi
     neg = {key: mx.zeros_like(value) for key, value in cond.items()}
 
     def sample(model, noise, positive, negative, **kwargs):
+        assert kwargs["selective_compile"] is selective_compile
         assert set(positive) == set(negative) == {"global", "proj"}
         assert noise.dtype == mx.float32
         for key in cond:
@@ -62,7 +64,8 @@ def test_ss_entrypoint_preserves_conditioning_and_packed_weights(monkeypatch, bi
 
     monkeypatch.setattr(sys, "argv", ["generate_pixal3d.py", "--image", "unused.png",
                                      "--no-moge", "--resolution", "512",
-                                     "--quantize", str(bits)])
+                                     "--quantize", str(bits),
+                                     "--compile-transformer" if selective_compile else "--no-compile-transformer"])
     monkeypatch.setattr(dinov3, "DINOv3ViT", lambda: object())
     monkeypatch.setattr(dinov3, "load_dinov3_weights", lambda *a, **k: 0)
     monkeypatch.setattr(naf, "NAF", lambda: object())
@@ -75,6 +78,17 @@ def test_ss_entrypoint_preserves_conditioning_and_packed_weights(monkeypatch, bi
     monkeypatch.setattr(generate_pixal3d, "prepare_conditioning_image", lambda image, output, no_rembg=False: image)
     with pytest.raises(ReachedSampler):
         generate_pixal3d.main()
+
+
+@pytest.mark.parametrize("selective_compile", [True, False])
+def test_main_forwards_selective_compile_setting_when_resuming(monkeypatch, selective_compile):
+    import resume_pixal3d
+
+    captured = []
+    monkeypatch.setattr(resume_pixal3d, "main", lambda arguments, runtime=None: captured.extend(arguments))
+    option = "--compile-transformer" if selective_compile else "--no-compile-transformer"
+    generate_pixal3d.main(["--image", "unused.png", "--resume", "unused", option])
+    assert option in captured
 
 
 @pytest.mark.parametrize("resolution", [512, 1024])

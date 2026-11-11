@@ -1,13 +1,17 @@
 """Opt-in Transformer execution experiments; production entrypoints do not import this."""
 
 from dataclasses import dataclass
-from functools import lru_cache
 
 import mlx.core as mx
 import mlx.nn as nn
 
 from .models.pixal3d_flow import ProjModulatedBlock
 from .models.sparse_structure_flow import FeedForward, _layernorm_noaffine
+from .transformer_runtime import (
+    compiled_ffn as _compiled_ffn,
+    compiled_gated_residual as _compiled_gated_residual,
+    compiled_modulation as _compiled_modulation,
+)
 
 
 @dataclass(frozen=True)
@@ -33,27 +37,6 @@ VARIANTS = {
     "compiled-block": TransformerExperiment(ffn_chunk_size=0, eval_every=1, compiled_block=True),
     "compiled-block-pairs": TransformerExperiment(ffn_chunk_size=0, compiled_block=True),
 }
-
-
-@lru_cache(maxsize=1)
-def _compiled_ffn():
-    def forward(features, first_weight, first_bias, second_weight, second_bias):
-        hidden = nn.gelu_approx(mx.addmm(first_bias, features, first_weight.T))
-        return mx.addmm(second_bias, hidden, second_weight.T)
-    return mx.compile(forward)
-
-
-@lru_cache(maxsize=1)
-def _compiled_modulation():
-    def forward(features, scale, shift):
-        normalized = mx.fast.layer_norm(features.astype(mx.float32), weight=None, bias=None, eps=1e-6)
-        return normalized.astype(features.dtype) * (1 + scale) + shift
-    return mx.compile(forward)
-
-
-@lru_cache(maxsize=1)
-def _compiled_gated_residual():
-    return mx.compile(lambda features, hidden, gate: features + hidden * gate)
 
 
 class ResearchFeedForward(FeedForward):
