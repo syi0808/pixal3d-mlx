@@ -65,7 +65,10 @@ def reexport(arguments):
                            metallicFactor=1.0, roughnessFactor=1.0, alphaMode=alpha_mode, doubleSided=True)
     mesh = trimesh.Trimesh(vertices=export_vertices, faces=uv_faces, vertex_normals=geometry.vertex_normals,
                            process=False, visual=trimesh.visual.TextureVisuals(uv=export_uvs, material=material))
-    payload = mesh.export(file_type="glb")
+    from trellmlx.glb_normals import export_with_corrected_normals
+
+    normal_report = export_with_corrected_normals(mesh, arguments.output, max_faces=arguments.max_faces)
+    payload = arguments.output.read_bytes()
     scene = trimesh.load(io.BytesIO(payload), file_type="glb", force="scene", process=False)
     exported_faces = sum(len(part.faces) for part in scene.geometry.values())
     valid = exported_faces > 0 and (not arguments.max_faces or exported_faces <= arguments.max_faces)
@@ -86,7 +89,7 @@ def reexport(arguments):
               "input_faces": input_faces, "exported_faces": exported_faces,
               "exported_vertices": sum(len(part.vertices) for part in scene.geometry.values()),
               "resolution": resolution, "texture_size": arguments.texture_size, "timings": timings,
-              "budget_diagnostics": budget_diagnostics,
+              "budget_diagnostics": budget_diagnostics, "normal_correction": normal_report,
               "elapsed_seconds": time.perf_counter() - started, "peak_mlx_bytes": mx.get_peak_memory(),
               "output_bytes": len(payload), "output_sha256": hashlib.sha256(payload).hexdigest(),
               "source_sha256": {name: hashlib.sha256((arguments.ckpt / name).read_bytes()).hexdigest()

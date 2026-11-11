@@ -98,3 +98,21 @@ def test_glb_correction_preserves_triangles_uv_materials_and_image_bytes(tmp_pat
         correct_glb(source, target)
     with pytest.raises(ValueError, match="triangle limit"):
         correct_glb(source, tmp_path / "over-budget.glb", max_faces=19)
+
+
+def test_final_export_normal_correction_is_uncapped_and_atomic(tmp_path):
+    import hashlib
+    import json
+
+    from trellmlx.glb_normals import export_with_corrected_normals
+
+    mesh = trimesh.creation.icosphere(subdivisions=5)
+    output = tmp_path / "mesh.glb"
+    report = export_with_corrected_normals(mesh, output)
+    assert report["triangles"] == len(mesh.faces) > 5000
+    assert report["max_faces"] == 0
+    original = output.read_bytes()
+    with pytest.raises(ValueError, match="triangle limit"):
+        export_with_corrected_normals(mesh, output, max_faces=5000)
+    assert output.read_bytes() == original
+    assert json.loads(output.with_suffix(".normals.json").read_text())["output_sha256"] == hashlib.sha256(original).hexdigest()

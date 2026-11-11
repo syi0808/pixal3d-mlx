@@ -1004,7 +1004,10 @@ def _generate(args, runtime):
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    textured_mesh.export(args.output)
+    from trellmlx.glb_normals import export_with_corrected_normals
+
+    runtime.advance("normal_correction")
+    export_with_corrected_normals(textured_mesh, args.output, max_faces=args.max_faces)
     peak_mem = mx.metal.get_peak_memory() / 1e9
     print(f"\n  Saved: {args.output}")
     print(f"  Total: {time.perf_counter()-t_total:.1f}s")
