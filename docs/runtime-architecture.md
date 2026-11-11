@@ -17,6 +17,9 @@ Strict triangle caps, checkpoint-only LOD export, and additional CPU topology
 experiments are documented in [performance-followup.md](performance-followup.md).
 Frozen-input SS/HR compilation, synchronization, and FFN/cache experiments are
 documented in [transformer-sampling-investigation.md](transformer-sampling-investigation.md).
+Its [hardware bottleneck audit](transformer-sampling-investigation.md#hardware-bottleneck-audit-2026-11-11)
+adds empirical compute/bandwidth ceilings, GPU execution coverage, dtype
+promotion, and separately scoped compression/swap observations.
 
 ## Execution and memory ownership
 
