@@ -1,5 +1,10 @@
 # Frozen-input Transformer sampling investigation
 
+The experiments and hardware audit below describe their historical execution
+paths. Pixal3D generation/resume now enable only the narrower FFN/pointwise
+selective compilation path by default; whole-block and QK/RoPE compilation
+remain experimental. See the [production integration measurements](performance-followup.md#production-integration-2026-11-11).
+
 ## Scope
 
 Apple M3 Pro / 18 GiB, MLX 0.31.2. The primary experiments keep pretrained

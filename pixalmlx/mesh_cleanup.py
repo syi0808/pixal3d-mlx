@@ -12,6 +12,9 @@ import numpy as np
 from scipy import sparse
 from scipy.sparse.csgraph import connected_components
 
+from .mesh_topology import grouped_face_components as _face_connected_components
+from .mesh_topology import sparse_corner_repair as repair_non_manifold_edges
+
 
 def cleanup_mesh(
     vertices: np.ndarray,
@@ -171,7 +174,7 @@ def remove_small_components(
     return _reindex_mesh(vertices, kept_faces)
 
 
-def _face_connected_components(faces, n_faces):
+def _face_connected_components_reference(faces, n_faces):
     """Compute connected components via face adjacency (shared edges)."""
     edges = {}
     for fi, face in enumerate(faces):
@@ -332,7 +335,7 @@ def remove_duplicate_faces(
     return _reindex_mesh(vertices, faces[unique_idx])
 
 
-def repair_non_manifold_edges(
+def _repair_non_manifold_edges_reference(
     vertices: np.ndarray,
     faces: np.ndarray,
     verbose: bool = True,

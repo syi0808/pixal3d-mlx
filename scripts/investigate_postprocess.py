@@ -14,7 +14,7 @@ import numpy as np
 from generate import _cleanup_and_simplify_mesh
 from pixalmlx.checkpoint import load_checkpoint
 from pixalmlx.mesh_budget import enforce_face_limit
-from pixalmlx.mesh_experiments import experimental_cleanup
+from pixalmlx.mesh_experiments import experimental_cleanup, reference_cleanup
 from pixalmlx.texture_bake import uv_unwrap
 
 
@@ -54,7 +54,7 @@ def cleanup(arguments):
         vertices, faces = raw["vertices"], raw["faces"]
     profiler = cProfile.Profile() if arguments.profile else None
     started = time.perf_counter()
-    with experimental_cleanup(arguments.experimental):
+    with (reference_cleanup() if arguments.reference else experimental_cleanup(arguments.experimental)):
         if profiler:
             profiler.enable()
         vertices, faces = _cleanup_and_simplify_mesh(vertices, faces, target_faces=200000, no_cleanup=False)
@@ -63,6 +63,7 @@ def cleanup(arguments):
     elapsed = time.perf_counter() - started
     archived = load_checkpoint(str(arguments.checkpoints), "mesh")
     report = {"experimental": arguments.experimental, "profiled": arguments.profile, "cleanup_seconds": elapsed,
+              "backend": "reference" if arguments.reference else "vectorized",
               "vertices": len(vertices), "faces": len(faces),
               "archived_vertices_equal": bool(np.array_equal(vertices, archived["vertices"])),
               "archived_faces_equal": bool(np.array_equal(faces, archived["faces"])),
@@ -111,7 +112,9 @@ def main():
     parser.add_argument("--checkpoints", type=Path, default=Path("outputs/turnip512/checkpoints"))
     parser.add_argument("--raw-mesh", type=Path, default=Path("outputs/runtime/postprocess-investigation/raw-mesh.npz"))
     parser.add_argument("--report", type=Path, default=Path("outputs/runtime/postprocess-investigation/report.json"))
-    parser.add_argument("--experimental", action="store_true")
+    backend = parser.add_mutually_exclusive_group()
+    backend.add_argument("--experimental", action="store_true")
+    backend.add_argument("--reference", action="store_true", help="Replay the original Python topology implementation")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--limits", type=int, nargs="+", default=[5000, 10000, 20000, 50000])
     arguments = parser.parse_args()

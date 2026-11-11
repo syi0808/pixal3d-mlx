@@ -85,6 +85,9 @@ This checkout defaults to 512 resolution and a 10 GB MLX evaluation guideline,
 not a hard allocation cap. It includes sparse NAF projection, GPU sparse topology, static DiT
 conditioning, and an in-process persistent batch engine. See the
 [runtime implementation and measured tradeoffs](docs/runtime-architecture.md).
+Pixal3D generation/resume enable bounded FFN and modulation/residual compilation
+by default (`--no-compile-transformer` disables it). CPU mesh topology uses
+vectorized edge grouping and sparse corner connectivity without reducing steps.
 
 ```bash
 # Full pipeline (resolution 512 by default):

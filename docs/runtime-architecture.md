@@ -124,8 +124,22 @@ setting is optimal for every Apple GPU or shape.
   inspected and assumed to be zero.
 - FFN row chunking limits `tokens x hidden_channels` intermediates. Evaluation
   between pairs of blocks shortens the remaining live graph.
+- Pixal3D generation/resume enable selective compilation of pure FFN chunks,
+  AdaLN modulation, and gated residuals by default. `--no-compile-transformer`
+  restores uncompiled execution without changing the 12-step schedules,
+  attention, chunk sizes, or precision. Library sampler calls remain opt-in
+  through `selective_compile=True`; raw model construction stays uncompiled.
+  Packed quantized FFNs retain their quantized operators instead of routing
+  integer storage through a floating-point GEMM compiler.
 - Optional compilation fuses the pure Euler update. MLX GEMM and Flash
   Attention remain the execution backends for dense transformer computation.
+
+CPU mesh cleanup uses sorted edge groups and SciPy sparse connectivity for
+face components and non-manifold corner repair. Component filtering, canonical
+vertex/face ordering, simplification, hole filling and normal policy are
+unchanged. The retained reference backend is for scoped benchmark comparisons,
+not a process-wide production switch. See the
+[production performance comparison](performance-followup.md#production-integration-2026-11-11).
 
 Stable SS compute and CFG remain FP32. Experimental `--ss-precision mixed`
 and `--slat-precision mixed` keep FP32 sampler state and normalization

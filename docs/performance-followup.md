@@ -1,5 +1,9 @@
 # Performance follow-up and strict polygon budgets
 
+The initial observations below predate production adoption. Selective
+FFN/pointwise compilation and vectorized CPU topology are now integrated;
+see [the production comparison](#production-integration-2026-11-11).
+
 ## Completed 5,000-triangle turnip
 
 The background checkpoint-only export produced
@@ -206,3 +210,146 @@ Front/back previews and a three-view mesh witness are retained in
 `outputs/turnip5k/`. They render the actual low-poly GLB, not the source image;
 the simple preview shades sampled triangle colors rather than doing a full
 PBR render. The original high-poly GLB remains byte-identical.
+
+## Production integration: 2026-11-11
+
+Pixal3D generation and checkpoint resume now default to selectively compiling
+pure FFN chunks, AdaLN modulation and gated residual updates. Shared compiled
+functions take weights and biases explicitly rather than retaining a model.
+Chunking and every-two-block evaluation remain bounded as before. Full blocks,
+QK/RoPE and the Euler update are not newly compiled. The existing optional
+`--compile-step` continues to control only the Euler update.
+
+`--no-compile-transformer` disables this new default. The library sampler's
+`selective_compile` argument defaults to false for compatibility; the CLI
+passes its setting explicitly to all four samplers and through resume.
+Reused models receive the current setting on every sampling call. Quantized
+FFNs retain their packed quantized operators and do not enter the compiled
+floating-point FFN path.
+
+CPU cleanup now uses the previously isolated vectorized edge grouping and
+sparse corner-connectivity implementation. Component filtering, corner
+representatives, triangle/vertex ordering, simplification and normal/hole
+policies are unchanged. Original Python topology remains available only as
+a scoped benchmark reference. No global monkey-patching is used by production
+generation.
+
+### Same-input end-to-end observations
+
+Both processes use `outputs/turnip512/input.png`, seed 42, resolution 512,
+1024 x 1024 textures, the 200,000-face soft target and native MoGe. All four
+samplers retain **12 steps**, the original guidance schedules, pretrained
+weights and FP32 activation policy. No quantization, token pruning, alternate
+attention, model-cache policy change, or step reduction is introduced.
+The archived high-poly and LOD assets are not overwritten.
+
+| Measurement | Before | Selective compile + vectorized cleanup |
+| --- | ---: | ---: |
+| Pipeline-reported seconds | 368.3 | 345.8 |
+| Monitored whole-process seconds | 369.749 | 346.590 |
+| SS sampling seconds | 109.9 | 106.4 |
+| LR sampling seconds | 57.4 | 53.8 |
+| HR sampling seconds | 51.1 | 53.3 |
+| Texture sampling seconds | 34.0 | 30.5 |
+| Shape decode + mesh stage seconds | 24.186 | 15.889 |
+| UV unwrap seconds | 19.4 | 18.3 |
+| Peak MLX allocation GB | 8.339 | 8.339 |
+| Peak process footprint GB | 9.828 | 9.724 |
+| Maximum new system swap-used GB | 2.904 | 1.280 |
+
+The pipeline observation improves by **22.5 s / 6.1%**; monitored wall time by
+23.16 s / 6.3%. Shape decode + mesh improves by 8.30 s. Rounded cleanup-pass
+logs show pass 1 falling from 10.5 to 3.6 s; pass 2 remains about 6 s.
+
+These are one sequential observation per configuration, not a controlled
+confidence interval. The desktop/cache state differs, swap grows in both,
+and HR sampling actually regresses in this pair. Preprocessing and UV time
+also change despite not being optimized. Therefore not every second of the
+end-to-end difference can be attributed to the two code changes, and a
+universal 6.1% speedup is not claimed. MLX peak allocation is effectively
+unchanged; this work is not a memory-capacity fix.
+
+### Isolated performance controls
+
+Fixed-input tests use the actual production classes, not the research wrappers.
+Weights, input archives, 12-step schedules, guidance, precision, FFN chunking
+and source hashes match within each pair. Model/input loading and downstream
+decoding are outside sampling time; initial selective compilation is included.
+
+| Component | Reference seconds | Optimized seconds | Reduction |
+| --- | ---: | ---: | ---: |
+| Full SS sampling, 4096 tokens, 12 steps | 94.838 | 90.421 | 4.66% |
+| Full HR sampling, 2185 tokens, 12 steps | 48.950 | 46.536 | 4.93% |
+| Complete raw-mesh cleanup/simplification, median of 3 | 18.799 | 9.730 | 48.24% |
+
+The frozen raw mesh contains 663,831 vertices / 1,344,004 triangles. CPU
+reference observations are 19.042 / 18.799 / 18.781 s; vectorized observations
+are 9.725 / 9.748 / 9.730 s. Each uses a fresh process, with reference and
+vectorized trials interleaved. Median cleanup saving is **9.068 s**. This is
+not a 48% reduction of neural inference or full generation.
+
+One initial HR-selective replay (55.491 s) overlaps a separately launched
+Python-overhead benchmark and is **excluded**, not averaged into these results.
+This task's benchmark queue is suspended while that independent batch finishes;
+the selective HR measurement is then repeated at
+`hr-production-selective-isolated/`. SS and the retained HR reference do not
+overlap that independent batch. CPU comparisons and the HR retry run without
+concurrent benchmark/test workloads. Desktop apps remain uncontrolled, and
+sampling still has only one retained observation per path.
+
+Isolated SS MLX peaks are 6.336 GB reference / 6.269 GB selective. These
+component peaks exclude DINO and pipeline model caches and do not contradict
+the unchanged 8.339 GB whole-generation peak.
+
+### Reproduction and scope
+
+Raw full-run reports/logs/outputs are under
+`outputs/runtime/selective-cleanup-integration/{before,after}/`. Independent
+fixed-input sampling and repeated raw-mesh cleanup reports use the same parent
+directory. GPU benchmarks run sequentially, without concurrent cleanup or
+test workloads.
+
+```bash
+PYTHONPATH=. .venv/bin/python generate_pixal3d.py \
+  --image outputs/turnip512/input.png --seed 42 --resolution 512 \
+  --texture-size 1024 --target-faces 200000 \
+  --output outputs/runtime/new-optimized/turnip.glb \
+  --runtime-report outputs/runtime/new-optimized/runtime.json
+
+PYTHONPATH=. .venv/bin/python scripts/investigate_sampling.py time \
+  --stage ss --variant production-reference --steps 12 \
+  --report outputs/runtime/new-benchmark/ss-reference.json
+
+PYTHONPATH=. .venv/bin/python scripts/investigate_sampling.py time \
+  --stage ss --variant production-selective --steps 12 \
+  --report outputs/runtime/new-benchmark/ss-selective.json
+
+PYTHONPATH=. .venv/bin/python scripts/investigate_postprocess.py cleanup \
+  --reference --report outputs/runtime/new-benchmark/cleanup-reference.json
+
+PYTHONPATH=. .venv/bin/python scripts/investigate_postprocess.py cleanup \
+  --report outputs/runtime/new-benchmark/cleanup-vectorized.json
+```
+
+Use fresh paths and an external `scripts/measure_generation.py` monitor for
+pressure guards. `time` samples the real full model and 12-step schedule but
+skips downstream decoding/quality comparisons; it is not a per-forward screen.
+CPU comparisons start from the frozen raw mesh, not the already-cleaned mesh.
+No additional visual, multi-asset, or multi-seed quality study is performed;
+this integration's requested comparison is performance-focused.
+
+Focused integration tests: **93 passed**. The full working-tree suite reports
+**449 passed**, with the same three pre-existing README onboarding failures:
+`test_readme_uses_current_huggingface_cli`,
+`test_readme_tests_section_avoids_stale_exact_count`, and
+`test_readme_quantization_section_states_measured_tradeoff`.
+Tests cover unchanged 12-step/22-forward SS-style schedules, chunk sizes,
+parameter arrays, repeated-model toggling, packed INT4/INT8 fallback, CLI/resume
+forwarding, and canonical CPU topology against the original implementation.
+
+The machine-readable comparison and exclusion record is
+`outputs/runtime/selective-cleanup-integration/summary.json`; raw test logs are
+`focused-tests.log`, `full-tests.log`, and `final-tests.log` in the same
+directory. Concurrently
+authored Python-overhead investigation files are outside this optimization
+patch and are not committed with it.
