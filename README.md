@@ -60,7 +60,7 @@ open output.glb
 
 ### Private API and dashboard
 
-Run generation from another computer through a private, token-authenticated
+Run generation from another computer through a private, token-free
 API with a durable single-worker queue, a dashboard, and an interactive PBR
 GLB viewer. Final exports automatically correct UV-seam normals without
 changing triangles or embedded textures. See the
@@ -72,9 +72,10 @@ npm ci --prefix web && npm run build --prefix web
 .venv/bin/python -m trellmlx.server
 ```
 
-The server binds only to `127.0.0.1:8000`; the login token is stored in
-`outputs/server/api-token`. Remote access uses Tailscale Serve, not public
-Funnel exposure. Server startup and Tailscale configuration are explicit.
+The server binds only to `127.0.0.1:8000`; no login or API token is required.
+Remote access uses Tailscale Serve and tailnet access policy, not public
+Funnel exposure. All permitted clients share the same workspace. Server
+startup and Tailscale configuration are explicit.
 
 ### Image-to-3D CLI
 

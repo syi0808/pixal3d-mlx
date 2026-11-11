@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def main():
-    from .app import ROOT, STATIC, Settings, create_app, load_token
+    from .app import ROOT, STATIC, Settings, create_app
     import uvicorn
 
     parser = argparse.ArgumentParser(description="Private Pixal3D API and dashboard; use Tailscale Serve for remote access")
@@ -18,11 +18,10 @@ def main():
     if not (STATIC / "vendor" / "model-viewer.min.js").is_file():
         parser.error("Build the local GLB viewer first: npm ci --prefix web && npm run build --prefix web")
     arguments.data_dir = arguments.data_dir.expanduser().resolve()
-    token = load_token(arguments.data_dir)
-    settings = Settings(data_dir=arguments.data_dir, token=token, allow_1024=arguments.allow_1024,
+    settings = Settings(data_dir=arguments.data_dir, allow_1024=arguments.allow_1024,
                         max_pending=arguments.max_pending, idle_cache_seconds=arguments.idle_cache_seconds)
     print(f"Dashboard: http://127.0.0.1:{arguments.port}", flush=True)
-    print(f"Token: PIXAL3D_API_TOKEN or {arguments.data_dir / 'api-token'} (never put it in a URL)", flush=True)
+    print("No API token or login required. Restrict remote access with Tailscale policy; do not use Funnel.", flush=True)
     uvicorn.run(create_app(settings), host="127.0.0.1", port=arguments.port, workers=1)
 
 

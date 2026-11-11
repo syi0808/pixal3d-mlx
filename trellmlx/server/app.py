@@ -1,7 +1,6 @@
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import fcntl
-import hmac
 import io
 import json
 import os
@@ -14,6 +13,7 @@ import subprocess
 import sys
 import threading
 import warnings
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .store import JobStore, QueueFull
 
@@ -58,31 +59,11 @@ class JobOptions(BaseModel):
 @dataclass
 class Settings:
     data_dir: Path
-    token: str
     repo_root: Path = ROOT
     start_worker: bool = True
     allow_1024: bool = False
     max_pending: int = 20
     idle_cache_seconds: float = 300
-
-
-def load_token(directory):
-    supplied = os.environ.get("PIXAL3D_API_TOKEN")
-    if supplied:
-        if len(supplied) < 24 or not supplied.isascii():
-            raise ValueError("PIXAL3D_API_TOKEN must contain at least 24 ASCII characters")
-        return supplied
-    path = Path(directory) / "api-token"
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w") as output:
-            output.write(secrets.token_urlsafe(32) + "\n")
-    path.chmod(0o600)
-    token = path.read_text().strip()
-    if len(token) < 24 or not token.isascii():
-        raise ValueError("Invalid API token file")
-    return token
 
 
 class WorkerSupervisor:
@@ -151,17 +132,28 @@ class WorkerSupervisor:
 
 
 class ServiceMiddleware:
-    def __init__(self, app, token):
-        self.app, self.token = app, token
+    def __init__(self, app):
+        self.app = app
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         headers = dict(scope["headers"])
         if scope["path"].startswith("/api/"):
-            expected = ("Bearer " + self.token).encode()
-            if not hmac.compare_digest(headers.get(b"authorization", b""), expected):
-                return await JSONResponse({"detail": "Valid bearer token required"}, status_code=401)(scope, receive, send)
+            origin = headers.get(b"origin")
+            same_host = True
+            if origin is not None:
+                try:
+                    source = urlsplit(origin.decode("ascii"))
+                    destination = urlsplit("//" + headers.get(b"host", b"").decode("ascii"))
+                    default_port = 443 if source.scheme == "https" else 80
+                    same_host = (source.scheme in ("http", "https") and source.hostname == destination.hostname
+                                 and (source.port or default_port) == (destination.port or default_port)
+                                 and not (source.username or source.password or source.path or source.query or source.fragment))
+                except (ValueError, UnicodeError):
+                    same_host = False
+            if not same_host or headers.get(b"sec-fetch-site") == b"cross-site":
+                return await JSONResponse({"detail": "Cross-origin browser requests are not allowed"}, status_code=403)(scope, receive, send)
         try:
             length = int(headers.get(b"content-length", b"0"))
         except ValueError:
@@ -211,7 +203,8 @@ def create_app(settings):
     app = FastAPI(title="Pixal3D Studio", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store, app.state.supervisor = store, supervisor
     upload_lock = threading.Lock()
-    app.add_middleware(ServiceMiddleware, token=settings.token)
+    app.add_middleware(ServiceMiddleware)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "*.ts.net"], www_redirect=False)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     def find_job(job_id):
@@ -235,11 +228,7 @@ def create_app(settings):
 
     @app.get("/api/openapi.json")
     def schema():
-        document = app.openapi()
-        document.setdefault("components", {}).setdefault("securitySchemes", {})["BearerToken"] = {
-            "type": "http", "scheme": "bearer"}
-        document["security"] = [{"BearerToken": []}]
-        return document
+        return app.openapi()
 
     @app.get("/api/jobs")
     def jobs(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0)):

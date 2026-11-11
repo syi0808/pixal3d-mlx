@@ -20,12 +20,11 @@ npm run build --prefix web
 .venv/bin/python -m trellmlx.server
 ```
 
-Open `http://127.0.0.1:8000`. The server listens **only on loopback**. It creates
-`outputs/server/api-token` with mode 0600; copy its value into the dashboard's
-login form. Alternatively set `PIXAL3D_API_TOKEN` before starting the service
-using an ASCII secret of at least 24 characters. Secrets are never printed by
-the server or accepted in query parameters. The browser holds the token in
-tab-scoped `sessionStorage`; use the lock button to clear it.
+Open `http://127.0.0.1:8000`. The server listens **only on loopback** and the
+dashboard opens directly, with **no login or API token**. The service neither
+creates nor reads an `api-token` file, and `PIXAL3D_API_TOKEN` is ignored.
+Existing token files are left untouched but are no longer used. The browser
+does not store credentials or send an Authorization header.
 
 The model-viewer library is pinned and built into locally served assets. No
 CDN is needed for the dashboard or the generated, uncompressed GLBs, whose
@@ -64,8 +63,8 @@ tailscale serve status
 ```
 
 Use the HTTPS `*.ts.net` address printed by Serve for both the dashboard and
-API. Restrict access with tailnet policy and retain the API token as a second
-layer. **Do not use Funnel** for this private service. Serve proxies the local
+API. **Restrict access with tailnet policy:** there is no application-level
+authentication. **Do not use Funnel** for this private service. Serve proxies the local
 HTTP port; do not expose the whole checkout or outputs directory. This also
 avoids the macOS Tailscale variants' restrictions on direct file serving.
 
@@ -77,10 +76,18 @@ See [Serve](https://tailscale.com/docs/features/tailscale-serve) and the
 
 ## API
 
-Every `/api/` endpoint requires `Authorization: Bearer TOKEN`, including
-health, inputs, logs, reports, and GLBs. There is no permissive CORS policy.
-All token holders share one workspace; this is **not multi-tenant isolation**.
-The static login page and bundled UI code are public, but reveal no jobs.
+All `/api/` endpoints work **without credentials**, including submissions,
+health, inputs, logs, reports, and GLBs. Local users and devices permitted by
+the Tailscale access policy can view all jobs and submit generation requests.
+They share one workspace; this is **not multi-tenant isolation**.
+
+The service accepts localhost/127.0.0.1 and `*.ts.net` Host headers. Other
+hosts are rejected to resist DNS rebinding. Browser API requests with a
+different Origin host/port or `Sec-Fetch-Site: cross-site` are also rejected;
+there is no permissive CORS policy. Ordinary same-host dashboard requests
+and command-line clients without an Origin header are supported. These
+browser guards are **not authentication** and do not replace Tailscale policy.
+Custom non-`ts.net` remote domains are not supported by this configuration.
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -93,25 +100,23 @@ The static login page and bundled UI code are public, but reveal no jobs.
 | GET | `/api/jobs/{id}/logs` | Last 64 KiB of the job log |
 | GET | `/api/jobs/{id}/model` | Corrected GLB download; 409 until complete |
 | GET | `/api/jobs/{id}/report` | Normal/geometry audit and runtime report |
-| GET | `/api/openapi.json` | Authenticated API schema |
+| GET | `/api/openapi.json` | API schema; no security scheme required |
 
-Example from another computer, with the secret supplied through its environment:
+Example from another computer; no token or Authorization header is needed:
 
 ```bash
 export PIXAL3D_URL='https://YOUR-MAC.YOUR-TAILNET.ts.net'
-read -s PIXAL3D_TOKEN
-export PIXAL3D_TOKEN
+
+curl --fail-with-body "$PIXAL3D_URL/api/health"
 
 curl --fail-with-body "$PIXAL3D_URL/api/jobs" \
-  -H "Authorization: Bearer $PIXAL3D_TOKEN" \
   -F 'image=@turnip.png' \
   -F 'options={"seed":42,"resolution":512,"target_faces":20000}'
 
-curl --fail-with-body "$PIXAL3D_URL/api/jobs/JOB_ID" \
-  -H "Authorization: Bearer $PIXAL3D_TOKEN"
+curl --fail-with-body "$PIXAL3D_URL/api/jobs/JOB_ID"
 
 curl --fail-with-body "$PIXAL3D_URL/api/jobs/JOB_ID/model" \
-  -H "Authorization: Bearer $PIXAL3D_TOKEN" -o turnip.glb
+  -o turnip.glb
 ```
 
 Do not hold the upload HTTP request open for inference: the 202 response
@@ -195,18 +200,20 @@ GLB artifacts are not modified in place by this change.
 node --check trellmlx/server/static/studio.js
 ```
 
-The tests exercise authentication, durable serial claims, upload limits
+The tests exercise token-free access, browser-origin/Host guards, durable serial claims, upload limits
 including chunked bodies, input validation, queue cancellation/recovery,
 checkout locking, normal-corrected publication, failed-export isolation,
 bounded logs, exact download hashes, and uncapped/atomic normal finalization.
 They use small real GLB fixtures and do not load the full neural models.
 
-### End-to-end verification on this Mac
+### Initial end-to-end verification on this Mac
 
 On 2026-11-11 (Asia/Seoul), a real HTTP request uploaded the attached turnip
 image with seed 42, 512 geometry, 1024 textures, a 20,000 soft triangle target,
 and no strict cap. A separate persistent worker ran the full neural pipeline
 and corrected final normals. This was not a checkpoint replay or mock job.
+This initial run predates the removal of application token authentication;
+the token-free API/browser verification is described separately below.
 
 - Generation and final validation: **316.450 seconds**, approximately 5m 16s.
 - Final model: **20,034 triangles**, 3,325,012 bytes, zero invalid-length
@@ -237,5 +244,30 @@ and corrected final normals. This was not a checkpoint replay or mock job.
 Verification artifacts are in `outputs/server-validation/`: `api-probe.json`,
 `downloaded-model.glb`, `downloaded-report.json`, `dashboard.jpg`,
 `full-tests.log`, `lifecycle.json`, and the SQLite job history with per-job logs/reports. The
-validation server uses a test-only token on loopback; it is not a deployed
+initial validation server used a test-only token on loopback; it was not a deployed
 Tailscale endpoint or an installed auto-start service.
+
+### Token-free access verification
+
+On 2026-11-11 (Asia/Seoul), token authentication and the login/lock UI were
+removed at the user's request. The CLI remains bound to `127.0.0.1`, and
+network access must be controlled through Tailscale Serve and tailnet policy.
+
+- All eight checked API routes return 200 without an Authorization header:
+  health, history, schema, job detail, input image, logs, final report, and GLB.
+  The downloaded GLB still matches the original audited SHA-256 above.
+- The browser opens directly, automatically connects to the worker, and loads
+  the existing PBR GLB without a login prompt or console warnings/errors.
+  This check does not rerun neural inference.
+- Host/Origin checks accept simulated HTTPS `*.ts.net` requests and reject
+  unrelated hosts and cross-site browser submissions. Actual Tailscale
+  installation, login, and remote-device connectivity remain unconfigured.
+- The 36 focused server tests pass. The full suite reports **415 passed** and
+  the same three pre-existing README onboarding failures. JavaScript/Python
+  syntax checks and `git diff --check` also pass.
+- The verification tab, API, and worker are all closed afterward; ports 8000
+  and 8765 have no remaining listeners.
+
+Artifacts: `outputs/server-validation/token-free-api.json`,
+`token-free-dashboard.jpg`, `token-free-server.log`, and
+`token-free-full-tests.log`.

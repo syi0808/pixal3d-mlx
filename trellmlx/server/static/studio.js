@@ -1,7 +1,7 @@
 import '/static/vendor/model-viewer.min.js';
 
 const element = id => document.getElementById(id);
-const state = {token: sessionStorage.getItem('pixal3d-token') || '', jobs: [], selected: null, modelJob: null, modelUrl: null, uploadUrl: null, timer: null, busy: false, limit: 50, selectionVersion: 0};
+const state = {jobs: [], selected: null, modelJob: null, modelUrl: null, uploadUrl: null, timer: null, busy: false, limit: 50, selectionVersion: 0};
 const labels = {queued: '대기 중', running: '생성 중', complete: '완료', failed: '실패', cancelled: '취소됨'};
 const stages = {
   initializing: '모델 준비', preprocess_and_camera: '1 / 9 · 이미지 전처리 및 카메라 추정',
@@ -19,13 +19,7 @@ function node(tag, text, className) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(`/api/${path}`, {...options, headers: {...options.headers, Authorization: `Bearer ${state.token}`}});
-  if (response.status === 401) {
-    sessionStorage.removeItem('pixal3d-token');
-    state.token = '';
-    if (!element('login-dialog').open) element('login-dialog').showModal();
-    throw new Error('API 토큰을 확인하세요.');
-  }
+  const response = await fetch(`/api/${path}`, options);
   if (!response.ok) {
     const error = await response.json().catch(() => ({detail: `HTTP ${response.status}`}));
     throw new Error(typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail));
@@ -128,7 +122,6 @@ async function selectJob(jobId) {
 }
 
 async function refresh() {
-  if (!state.token) return;
   try {
     const [health, listing] = await Promise.all([api('health').then(response => response.json()), api(`jobs?limit=${state.limit}`).then(response => response.json())]);
     state.jobs = listing.jobs;
@@ -150,7 +143,7 @@ async function refresh() {
     element('form-message').textContent = error.message;
   } finally {
     clearTimeout(state.timer);
-    if (state.token) state.timer = setTimeout(refresh, 2500);
+    state.timer = setTimeout(refresh, 2500);
   }
 }
 
@@ -248,20 +241,4 @@ async function download(kind) {
 }
 element('download-model').addEventListener('click', () => download('model'));
 element('download-report').addEventListener('click', () => download('report'));
-element('login-dialog').addEventListener('cancel', event => event.preventDefault());
-element('login-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  state.token = element('api-token').value.trim();
-  try {
-    await api('health');
-    sessionStorage.setItem('pixal3d-token', state.token);
-    element('api-token').value = '';
-    element('login-error').textContent = '';
-    element('login-dialog').close();
-    clearTimeout(state.timer);
-    await refresh();
-  } catch (error) {element('login-error').textContent = error.message;}
-});
-element('logout').addEventListener('click', () => {sessionStorage.removeItem('pixal3d-token'); location.reload();});
-if (state.token) refresh();
-else element('login-dialog').showModal();
+refresh();

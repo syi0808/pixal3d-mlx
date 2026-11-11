@@ -14,12 +14,9 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 from trellmlx.glb_normals import export_with_corrected_normals
-from trellmlx.server.app import JobOptions, MAX_REQUEST, Settings, WorkerSupervisor, create_app, load_token
+from trellmlx.server.app import JobOptions, MAX_REQUEST, Settings, WorkerSupervisor, create_app
 from trellmlx.server.store import JobStore, QueueFull
 from trellmlx.server.worker import execute_job, generation_arguments
-
-
-TOKEN = "test-only-pixal3d-api-token-not-production"
 
 
 def image_bytes():
@@ -30,9 +27,9 @@ def image_bytes():
 
 @pytest.fixture
 def service(tmp_path):
-    settings = Settings(data_dir=tmp_path, token=TOKEN, start_worker=False)
+    settings = Settings(data_dir=tmp_path, start_worker=False)
     app = create_app(settings)
-    with TestClient(app, headers={"Authorization": f"Bearer {TOKEN}"}) as client:
+    with TestClient(app, base_url="http://127.0.0.1:8000") as client:
         yield client, app.state.store
 
 
@@ -41,16 +38,21 @@ def submit(client, options=None):
                        data={"options": json.dumps(options or {})})
 
 
-def test_authentication_covers_uploads_models_logs_and_schema(service):
+def test_api_and_dashboard_work_without_tokens_or_login(service):
     client, _ = service
-    assert client.get("/").status_code == 200
-    for endpoint in ("health", "jobs", "openapi.json", "jobs/" + "a" * 32 + "/model", "jobs/" + "a" * 32 + "/logs"):
-        assert client.get("/api/" + endpoint, headers={"Authorization": "Bearer wrong"}).status_code == 401
-    assert client.post("/api/jobs", headers={"Authorization": ""}).status_code == 401
+    dashboard = client.get("/")
+    assert dashboard.status_code == 200
+    assert "login-dialog" not in dashboard.text
+    assert 'id="logout"' not in dashboard.text
+    for endpoint in ("health", "jobs", "openapi.json"):
+        assert client.get("/api/" + endpoint).status_code == 200
+    assert client.get("/api/health", headers={"Authorization": "Bearer obsolete"}).status_code == 200
     schema = client.get("/api/openapi.json")
-    assert schema.status_code == 200
-    assert schema.json()["components"]["securitySchemes"]["BearerToken"]["scheme"] == "bearer"
-    assert schema.json()["security"] == [{"BearerToken": []}]
+    assert "securitySchemes" not in schema.json()["components"]
+    assert "security" not in schema.json()
+    script = client.get("/static/studio.js").text
+    assert "Authorization" not in script
+    assert "sessionStorage" not in script
 
 
 def test_upload_persists_normalized_image_and_soft_target(service):
@@ -84,8 +86,8 @@ def test_palette_transparency_is_preserved_and_metadata_removed(service):
 
 
 def test_explicit_1024_opt_in_and_queue_overflow(tmp_path):
-    app = create_app(Settings(data_dir=tmp_path, token=TOKEN, start_worker=False, allow_1024=True, max_pending=1))
-    with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as client:
+    app = create_app(Settings(data_dir=tmp_path, start_worker=False, allow_1024=True, max_pending=1))
+    with TestClient(app, base_url="http://127.0.0.1:8000") as client:
         assert submit(client, {"resolution": 1024}).status_code == 202
         assert submit(client).status_code == 429
         assert len(list((tmp_path / "jobs").iterdir())) == 1
@@ -209,22 +211,69 @@ def test_log_response_is_bounded_and_missing_jobs_are_404(service):
     assert client.get("/static/../../pyproject.toml").status_code == 404
 
 
-def test_token_is_private_persistent_and_not_exposed_by_health(tmp_path, monkeypatch):
-    monkeypatch.delenv("PIXAL3D_API_TOKEN", raising=False)
-    token = load_token(tmp_path)
-    assert token == load_token(tmp_path)
-    assert (tmp_path / "api-token").stat().st_mode & 0o777 == 0o600
-    monkeypatch.setenv("PIXAL3D_API_TOKEN", "too-short")
-    with pytest.raises(ValueError):
-        load_token(tmp_path)
-    app = create_app(Settings(data_dir=tmp_path, token=token, start_worker=False))
-    with TestClient(app, headers={"Authorization": "Bearer " + token}) as client:
+def test_legacy_tokens_are_ignored_and_security_headers_remain(tmp_path, monkeypatch):
+    monkeypatch.setenv("PIXAL3D_API_TOKEN", "obsolete")
+    legacy_token = tmp_path / "api-token"
+    legacy_token.write_text("obsolete-file-token")
+    app = create_app(Settings(data_dir=tmp_path, start_worker=False))
+    with TestClient(app, base_url="http://127.0.0.1:8000") as client:
         response = client.get("/api/health")
-        assert token not in response.text
+        assert response.status_code == 200
+        assert "obsolete" not in response.text
         assert response.headers["cache-control"] == "no-store"
         assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
         assert "'wasm-unsafe-eval'" in response.headers["content-security-policy"]
         assert "'unsafe-eval'" not in response.headers["content-security-policy"]
+    assert legacy_token.read_text() == "obsolete-file-token"
+
+
+@pytest.mark.parametrize("origin", ["https://attacker.example", "null", "file:///", "https://127.0.0.1:9999",
+                                    "http://user@127.0.0.1:8000", "http://127.0.0.1:8000/path"])
+def test_cross_origin_browser_submissions_are_rejected_without_a_token(service, origin):
+    client, store = service
+    response = client.post("/api/jobs", files={"image": ("input.png", image_bytes(), "image/png")},
+                           headers={"Origin": origin})
+    assert response.status_code == 403
+    assert store.counts() == {}
+
+
+def test_cross_site_browser_request_without_origin_is_rejected(service):
+    client, _ = service
+    assert client.get("/api/jobs", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+
+
+@pytest.mark.parametrize("host,origin", [("127.0.0.1:8000", "http://127.0.0.1:8000"),
+                                         ("localhost:8000", "http://localhost:8000"),
+                                         ("pixal3d.example.ts.net", "https://pixal3d.example.ts.net"),
+                                         ("pixal3d.example.ts.net:8443", "https://pixal3d.example.ts.net:8443")])
+def test_local_and_tailscale_dashboard_origins_are_allowed(service, host, origin):
+    client, _ = service
+    assert client.get("/api/health", headers={"Host": host, "Origin": origin}).status_code == 200
+
+
+@pytest.mark.parametrize("host", ["attacker.example", "pixal3d.example.ts.net.attacker.example"])
+def test_untrusted_hosts_are_rejected_to_resist_dns_rebinding(service, host):
+    client, _ = service
+    assert client.get("/api/health", headers={"Host": host}).status_code == 400
+
+
+def test_cli_stays_on_loopback_without_creating_a_token(tmp_path, monkeypatch, capsys):
+    from trellmlx.server import __main__ as command
+    import trellmlx.server.app as server_app
+    import uvicorn
+
+    static = tmp_path / "static"
+    (static / "vendor").mkdir(parents=True)
+    (static / "vendor" / "model-viewer.min.js").write_text("")
+    monkeypatch.setattr(server_app, "STATIC", static)
+    monkeypatch.setenv("PIXAL3D_API_TOKEN", "obsolete")
+    monkeypatch.setattr("sys.argv", ["server", "--data-dir", str(tmp_path / "data")])
+    calls = []
+    monkeypatch.setattr(uvicorn, "run", lambda app, **options: calls.append(options))
+    command.main()
+    assert calls == [{"host": "127.0.0.1", "port": 8000, "workers": 1}]
+    assert not (tmp_path / "data" / "api-token").exists()
+    assert "PIXAL3D_API_TOKEN" not in capsys.readouterr().out
 
 
 def test_supervisor_lock_prevents_two_server_instances(tmp_path):
@@ -238,7 +287,7 @@ def test_supervisor_lock_prevents_two_server_instances(tmp_path):
         def join(self, timeout):
             pass
 
-    settings = Settings(data_dir=tmp_path / "data", token=TOKEN, repo_root=tmp_path)
+    settings = Settings(data_dir=tmp_path / "data", repo_root=tmp_path)
     store = JobStore(settings.data_dir)
     first, second = WorkerSupervisor(settings, store), WorkerSupervisor(settings, store)
     from unittest.mock import patch
