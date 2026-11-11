@@ -9,12 +9,12 @@ import pytest
 
 class TestRoPE:
     def test_build_phases_shape(self):
-        from trellmlx.modules.rope import build_rope_phases
+        from pixalmlx.modules.rope import build_rope_phases
         phases = build_rope_phases(resolution=4, head_dim=128)
         assert phases.shape == (64, 64, 2)  # 4³=64 tokens, 128//2=64 freq dims, 2 (cos/sin)
 
     def test_origin_phases(self):
-        from trellmlx.modules.rope import build_rope_phases
+        from pixalmlx.modules.rope import build_rope_phases
         phases = build_rope_phases(resolution=4, head_dim=128)
         mx.eval(phases)
         # Position (0,0,0) = index 0: cos(0)=1, sin(0)=0 for all freq dims
@@ -25,7 +25,7 @@ class TestRoPE:
         assert mx.allclose(sin_origin, mx.zeros_like(sin_origin), atol=1e-5).item()
 
     def test_apply_identity_phases(self):
-        from trellmlx.modules.rope import apply_rope
+        from pixalmlx.modules.rope import apply_rope
         T, H, D = 8, 4, 64
         x = mx.random.normal((T, H, D))
         # Identity phases: cos=1, sin=0
@@ -36,7 +36,7 @@ class TestRoPE:
         assert diff < 1e-5, f"Identity phases should preserve input, got diff={diff}"
 
     def test_apply_rope_changes_output(self):
-        from trellmlx.modules.rope import build_rope_phases, apply_rope
+        from pixalmlx.modules.rope import build_rope_phases, apply_rope
         T, H, D = 64, 4, 128
         x = mx.random.normal((T, H, D))
         phases = build_rope_phases(resolution=4, head_dim=D)
@@ -48,7 +48,7 @@ class TestRoPE:
 
 class TestDynamicResolution:
     def test_different_resolution_than_constructor(self):
-        from trellmlx.models.sparse_structure_flow import SparseStructureFlowModel
+        from pixalmlx.models.sparse_structure_flow import SparseStructureFlowModel
         model = SparseStructureFlowModel(
             in_channels=8, out_channels=8, model_channels=64,
             num_heads=4, num_blocks=2, mlp_hidden=128,
@@ -64,7 +64,7 @@ class TestDynamicResolution:
 
 class TestSLatFlowModel:
     def test_output_shape(self):
-        from trellmlx.models.slat_flow import SLatFlowModel
+        from pixalmlx.models.slat_flow import SLatFlowModel
         model = SLatFlowModel(
             in_channels=32, out_channels=32, model_channels=64,
             num_heads=4, num_blocks=2, mlp_hidden=128,
@@ -78,7 +78,7 @@ class TestSLatFlowModel:
         assert out.shape == (N, 32)
 
     def test_with_coords(self):
-        from trellmlx.models.slat_flow import SLatFlowModel
+        from pixalmlx.models.slat_flow import SLatFlowModel
         model = SLatFlowModel(
             in_channels=32, out_channels=32, model_channels=64,
             num_heads=4, num_blocks=2, mlp_hidden=128,
@@ -93,7 +93,7 @@ class TestSLatFlowModel:
         assert out.shape == (N, 32)
 
     def test_coords_change_output(self):
-        from trellmlx.models.slat_flow import SLatFlowModel
+        from pixalmlx.models.slat_flow import SLatFlowModel
         model = SLatFlowModel(
             in_channels=32, out_channels=32, model_channels=64,
             num_heads=4, num_blocks=2, mlp_hidden=128,
@@ -114,13 +114,13 @@ class TestSLatFlowModel:
 
 class TestSparseStructureDecoder:
     def test_pixel_shuffle_3d(self):
-        from trellmlx.models.sparse_structure_decoder import pixel_shuffle_3d
+        from pixalmlx.models.sparse_structure_decoder import pixel_shuffle_3d
         x = mx.random.normal((1, 2, 2, 2, 64))
         out = pixel_shuffle_3d(x, factor=2)
         assert out.shape == (1, 4, 4, 4, 8)  # 64 / 2³ = 8
 
     def test_output_shape(self):
-        from trellmlx.models.sparse_structure_decoder import SparseStructureDecoder
+        from pixalmlx.models.sparse_structure_decoder import SparseStructureDecoder
         model = SparseStructureDecoder(
             out_channels=1, latent_channels=8, num_res_blocks=1,
             num_res_blocks_middle=1, channels=[32, 16, 8],
@@ -131,7 +131,7 @@ class TestSparseStructureDecoder:
         assert out.shape == (1, 1, 16, 16, 16)
 
     def test_conv3d_shape(self):
-        from trellmlx.models.sparse_structure_decoder import Conv3d
+        from pixalmlx.models.sparse_structure_decoder import Conv3d
         conv = Conv3d(8, 16, kernel_size=3, padding=1)
         x = mx.random.normal((1, 4, 4, 4, 8))  # channels-last
         out = conv(x)
@@ -140,7 +140,7 @@ class TestSparseStructureDecoder:
 
 class TestSampler:
     def test_pred_xstart_roundtrip(self):
-        from trellmlx.samplers import _pred_to_xstart, _xstart_to_pred
+        from pixalmlx.samplers import _pred_to_xstart, _xstart_to_pred
         x_t = mx.array([[1.0, 2.0, -0.5]])
         pred = mx.array([[0.5, -0.3, 0.8]])
         sigma_min = 1e-5
@@ -166,7 +166,7 @@ class TestSampler:
 
     def test_guidance_interval(self):
         """Verify that steps outside guidance interval skip negative conditioning."""
-        from trellmlx.samplers import flow_euler_sample
+        from pixalmlx.samplers import flow_euler_sample
 
         call_count = {"pos": 0, "neg": 0}
 
@@ -188,33 +188,33 @@ class TestSampler:
 
 class TestWeightLoader:
     def test_remap_adaln(self):
-        from trellmlx.weight_loader import _remap_key
+        from pixalmlx.weight_loader import _remap_key
         assert _remap_key("adaLN_modulation.1.weight") == "adaLN_modulation.layers.1.weight"
         assert _remap_key("adaLN_modulation.1.bias") == "adaLN_modulation.layers.1.bias"
 
     def test_remap_mlp(self):
-        from trellmlx.weight_loader import _remap_key
+        from pixalmlx.weight_loader import _remap_key
         assert _remap_key("blocks.0.mlp.mlp.0.weight") == "blocks.0.mlp.mlp_0.weight"
         assert _remap_key("blocks.0.mlp.mlp.2.bias") == "blocks.0.mlp.mlp_2.bias"
 
     def test_remap_timestep(self):
-        from trellmlx.weight_loader import _remap_key
+        from pixalmlx.weight_loader import _remap_key
         assert _remap_key("t_embedder.mlp.0.weight") == "t_embedder.mlp_0.weight"
         assert _remap_key("t_embedder.mlp.2.bias") == "t_embedder.mlp_2.bias"
 
     def test_remap_out_layer(self):
-        from trellmlx.weight_loader import _remap_key
+        from pixalmlx.weight_loader import _remap_key
         assert _remap_key("out_layer.0.weight") == "out_layer_0.weight"
         assert _remap_key("out_layer.2.bias") == "out_layer_2.bias"
 
     def test_remap_passthrough(self):
-        from trellmlx.weight_loader import _remap_key
+        from pixalmlx.weight_loader import _remap_key
         # Keys that shouldn't be remapped
         assert _remap_key("blocks.0.self_attn.to_qkv.weight") == "blocks.0.self_attn.to_qkv.weight"
         assert _remap_key("blocks.0.modulation") == "blocks.0.modulation"
 
     def test_conv_permute(self):
-        from trellmlx.weight_loader import _should_permute_conv
+        from pixalmlx.weight_loader import _should_permute_conv
         assert _should_permute_conv("blocks.0.conv1.weight", (128, 128, 3, 3, 3)) is True
         assert _should_permute_conv("blocks.0.conv1.bias", (128,)) is False
         assert _should_permute_conv("blocks.0.self_attn.to_qkv.weight", (4608, 1536)) is False
@@ -223,7 +223,7 @@ class TestWeightLoader:
 class TestMeshExtract:
     def test_dense_cube_connected(self):
         """A dense 2x2x2 cube must produce a single connected mesh."""
-        from trellmlx.mesh_extract import flexible_dual_grid_to_mesh
+        from pixalmlx.mesh_extract import flexible_dual_grid_to_mesh
         from collections import defaultdict
 
         coords = np.array([[z, y, x] for z in range(2) for y in range(2) for x in range(2)], dtype=np.int64)
@@ -259,7 +259,7 @@ class TestMeshExtract:
 
     def test_dense_cube_bounds(self):
         """Mesh vertices must be within the specified AABB."""
-        from trellmlx.mesh_extract import flexible_dual_grid_to_mesh
+        from pixalmlx.mesh_extract import flexible_dual_grid_to_mesh
         coords = np.array([[z, y, x] for z in range(4) for y in range(4) for x in range(4)], dtype=np.int64)
         N = len(coords)
         dual_vertices = np.full((N, 3), 0.5, dtype=np.float32)
@@ -276,7 +276,7 @@ class TestMeshExtract:
 
     def test_decoder_output_format(self):
         """Test decoder_output_to_mesh with synthetic 7-channel data."""
-        from trellmlx.mesh_extract import decoder_output_to_mesh
+        from pixalmlx.mesh_extract import decoder_output_to_mesh
         coords_3d = np.array([[z, y, x] for z in range(4) for y in range(4) for x in range(4)], dtype=np.int64)
         N = len(coords_3d)
         coords_4d = np.column_stack([np.zeros(N, dtype=np.int64), coords_3d])
@@ -294,7 +294,7 @@ class TestMeshExtract:
 
 class TestQuantize:
     def test_small_layer_skipped(self):
-        from trellmlx.quantize import quantize_model
+        from pixalmlx.quantize import quantize_model
 
         class TinyModel(nn.Module):
             def __init__(self):

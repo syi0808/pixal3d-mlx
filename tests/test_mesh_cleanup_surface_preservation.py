@@ -9,7 +9,7 @@ fragments the first split produced.
 
 import numpy as np
 
-from trellmlx.mesh_cleanup import cleanup_mesh
+from pixalmlx.mesh_cleanup import cleanup_mesh
 
 
 def _make_fine_surface_and_debris():

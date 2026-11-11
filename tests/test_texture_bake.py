@@ -7,7 +7,7 @@ Uses synthetic meshes with known UV layouts for deterministic verification.
 import numpy as np
 import pytest
 
-from trellmlx.texture_bake import rasterize_uv, sample_voxel_attrs
+from pixalmlx.texture_bake import rasterize_uv, sample_voxel_attrs
 
 
 def _make_uv_quad():
@@ -106,7 +106,7 @@ class TestRasterizeUV:
         would underestimate the GPU tensor size when using per-face area instead
         of running max_w * max_h.
         """
-        from trellmlx.texture_bake import rasterize_uv_mlx
+        from pixalmlx.texture_bake import rasterize_uv_mlx
 
         # Create faces with deliberately orthogonal UV bboxes
         # Face 0: tall narrow strip (UV x in [0, 0.02], y in [0, 0.8])
@@ -131,7 +131,7 @@ class TestRasterizeUV:
         but requires >93% overlap and matching barycentric weights where both
         agree on coverage.
         """
-        from trellmlx.texture_bake import rasterize_uv_mlx
+        from pixalmlx.texture_bake import rasterize_uv_mlx
 
         _, faces, uvs = _make_uv_quad()
         texture_size = 32
@@ -196,7 +196,7 @@ class TestSampleVoxelAttrs:
 
     def test_mlx_matches_numpy(self):
         """Vectorized sampler should match numpy reference within tolerance."""
-        from trellmlx.texture_bake import sample_voxel_attrs_fast
+        from pixalmlx.texture_bake import sample_voxel_attrs_fast
 
         grid_size = 8
         np.random.seed(42)
@@ -214,7 +214,7 @@ class TestSampleVoxelAttrs:
 
     def test_fast_sampler_handles_empty_inputs_without_min_assert(self):
         """Empty voxel arrays should return an empty-shaped result, not call min()."""
-        from trellmlx.texture_bake import sample_voxel_attrs_fast
+        from pixalmlx.texture_bake import sample_voxel_attrs_fast
 
         positions = np.zeros((0, 3), dtype=np.float32)
         coords = np.zeros((0, 3), dtype=np.int32)
@@ -227,7 +227,7 @@ class TestSampleVoxelAttrs:
 
     def test_fast_sampler_matches_numpy_with_negative_query_corners(self):
         """Out-of-grid query corners should behave like sparse misses, not assert."""
-        from trellmlx.texture_bake import sample_voxel_attrs_fast
+        from pixalmlx.texture_bake import sample_voxel_attrs_fast
 
         grid_size = 4
         coords = np.array([[0, 0, 0], [1, 1, 1]], dtype=np.int32)
@@ -246,7 +246,7 @@ class TestSampleVoxelAttrs:
 class TestBakeTexture:
     def test_bake_texture_uses_fast_raster_and_sampler(self, monkeypatch):
         """The main bake route should exercise the optimized helpers."""
-        import trellmlx.texture_bake as texture_bake
+        import pixalmlx.texture_bake as texture_bake
 
         vertices, faces, uvs = _make_uv_quad()
         calls = []
@@ -329,7 +329,7 @@ class TestBakeTextureBackend:
 
     def test_bake_texture_accepts_backend_parameter(self):
         """bake_texture should accept a backend='gpu' parameter."""
-        from trellmlx.texture_bake import bake_texture
+        from pixalmlx.texture_bake import bake_texture
         mesh = self._make_textured_mesh()
         vertices, faces, uvs, vmapping, vc, va, gs = mesh
 
@@ -343,7 +343,7 @@ class TestBakeTextureBackend:
 
     def test_bake_texture_gpu_produces_nonzero_output(self):
         """GPU backend should produce actual texture content, not zeros."""
-        from trellmlx.texture_bake import bake_texture
+        from pixalmlx.texture_bake import bake_texture
         mesh = self._make_textured_mesh()
         vertices, faces, uvs, vmapping, vc, va, gs = mesh
 
@@ -360,7 +360,7 @@ class TestBakeTextureBackend:
         Allows small per-pixel differences from edge rasterization,
         but the overall texture must be very close.
         """
-        from trellmlx.texture_bake import bake_texture
+        from pixalmlx.texture_bake import bake_texture
         mesh = self._make_textured_mesh()
         vertices, faces, uvs, vmapping, vc, va, gs = mesh
         sz = 16
@@ -383,7 +383,7 @@ class TestBakeTextureBackend:
 
     def test_bake_texture_default_backend_is_cpu(self):
         """Default backend (no parameter) should still work = backwards compat."""
-        from trellmlx.texture_bake import bake_texture
+        from pixalmlx.texture_bake import bake_texture
         mesh = self._make_textured_mesh()
         vertices, faces, uvs, vmapping, vc, va, gs = mesh
 
@@ -396,7 +396,7 @@ class TestBakeTextureBackend:
 
     def test_bake_texture_rejects_invalid_backend(self):
         """Invalid backend values should raise ValueError, not silently fallback."""
-        from trellmlx.texture_bake import bake_texture
+        from pixalmlx.texture_bake import bake_texture
         mesh = self._make_textured_mesh()
         vertices, faces, uvs, vmapping, vc, va, gs = mesh
 
@@ -409,12 +409,12 @@ class TestBakeTextureBackend:
     def test_sample_voxel_attrs_fast_used_in_gpu_backend(self):
         """GPU backend should use sample_voxel_attrs_fast, not the dict version."""
         from unittest.mock import patch
-        from trellmlx.texture_bake import bake_texture
+        from pixalmlx.texture_bake import bake_texture
         mesh = self._make_textured_mesh()
         vertices, faces, uvs, vmapping, vc, va, gs = mesh
 
-        with patch("trellmlx.texture_bake.sample_voxel_attrs_fast",
-                    wraps=__import__("trellmlx.texture_bake",
+        with patch("pixalmlx.texture_bake.sample_voxel_attrs_fast",
+                    wraps=__import__("pixalmlx.texture_bake",
                                      fromlist=["sample_voxel_attrs_fast"]).sample_voxel_attrs_fast
                     ) as mock_fast:
             bake_texture(
@@ -430,19 +430,19 @@ class TestBakeTextureInpaintRadius:
     def test_metallic_roughness_inpaint_radius_matches_reference(self):
         """Inpaint radius for scalar channels should be 1, not 3."""
         from unittest.mock import patch, call
-        from trellmlx.texture_bake import bake_texture
+        from pixalmlx.texture_bake import bake_texture
         mesh = TestBakeTextureBackend._make_textured_mesh()
         vertices, faces, uvs, vmapping, vc, va, gs = mesh
 
         inpaint_calls = []
-        original_inpaint = __import__("trellmlx.texture_bake",
+        original_inpaint = __import__("pixalmlx.texture_bake",
                                        fromlist=["inpaint_texture"]).inpaint_texture
 
         def tracking_inpaint(image, mask, radius=3):
             inpaint_calls.append(radius)
             return original_inpaint(image, mask, radius=radius)
 
-        with patch("trellmlx.texture_bake.inpaint_texture", side_effect=tracking_inpaint):
+        with patch("pixalmlx.texture_bake.inpaint_texture", side_effect=tracking_inpaint):
             bake_texture(
                 vertices, faces, uvs, vmapping, vc, va, gs,
                 texture_size=8,
@@ -458,7 +458,7 @@ class TestBakeTextureAlphaDetection:
 
     def test_returns_alpha_mode(self):
         """bake_texture should return a third value: alpha_mode string."""
-        from trellmlx.texture_bake import bake_texture
+        from pixalmlx.texture_bake import bake_texture
         mesh = TestBakeTextureBackend._make_textured_mesh()
         vertices, faces, uvs, vmapping, vc, va, gs = mesh
 

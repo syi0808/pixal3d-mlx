@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from trellmlx.mesh_budget import enforce_face_limit
+from pixalmlx.mesh_budget import enforce_face_limit
 
 
 @pytest.mark.parametrize("limit", [0, -1, True, 1.5, None])

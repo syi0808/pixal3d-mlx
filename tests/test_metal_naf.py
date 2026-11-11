@@ -2,7 +2,7 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
-from trellmlx.models.naf import NAFCrossAttention, fused_neighborhood_attention, neighborhood_attention
+from pixalmlx.models.naf import NAFCrossAttention, fused_neighborhood_attention, neighborhood_attention
 
 
 @pytest.mark.parametrize("shape,kernel,dilation", [

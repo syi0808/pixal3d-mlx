@@ -44,7 +44,7 @@ def main():
     print(f"=== Sequential ({n} runs) ===")
     seq_times = []
     for i in range(n):
-        output = f"/tmp/trellis-bench-seq-{seeds[i]}.glb"
+        output = f"/tmp/pixalmlx-bench-seq-{seeds[i]}.glb"
         t, ok = run_one(args.image, seeds[i], output, f"seed={seeds[i]}")
         status = "ok" if ok else "FAIL"
         print(f"  seed={seeds[i]}: {t:.1f}s ({status})")
@@ -58,7 +58,7 @@ def main():
     env = {**os.environ, "PYTHONPATH": "."}
     t0 = time.perf_counter()
     for i in range(n):
-        output = f"/tmp/trellis-bench-par-{seeds[i]}.glb"
+        output = f"/tmp/pixalmlx-bench-par-{seeds[i]}.glb"
         cmd = [
             "python", "generate.py",
             "--image", args.image,

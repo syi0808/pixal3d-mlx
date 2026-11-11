@@ -1,4 +1,4 @@
-"""Tests for trellmlx core modules."""
+"""Tests for pixalmlx core modules."""
 
 import math
 import pytest
@@ -8,14 +8,14 @@ import mlx.nn as nn
 
 class TestLayerNorm32:
     def test_output_shape(self):
-        from trellmlx.modules.norm import LayerNorm32
+        from pixalmlx.modules.norm import LayerNorm32
         ln = LayerNorm32(128)
         x = mx.random.normal((4, 128))
         out = ln(x)
         assert out.shape == (4, 128)
 
     def test_normalized_stats(self):
-        from trellmlx.modules.norm import LayerNorm32
+        from pixalmlx.modules.norm import LayerNorm32
         ln = LayerNorm32(256)
         x = mx.random.normal((8, 256)) * 5 + 3  # non-zero mean, large std
         out = ln(x)
@@ -29,7 +29,7 @@ class TestLayerNorm32:
 
     def test_fp32_accumulation(self):
         """LN should accumulate in fp32 even with fp16 input."""
-        from trellmlx.modules.norm import LayerNorm32
+        from pixalmlx.modules.norm import LayerNorm32
         ln = LayerNorm32(64)
         x = mx.random.normal((4, 64)).astype(mx.float16)
         out = ln(x)
@@ -37,7 +37,7 @@ class TestLayerNorm32:
         assert out.dtype == mx.float16
 
     def test_affine_mode(self):
-        from trellmlx.modules.norm import LayerNorm32
+        from pixalmlx.modules.norm import LayerNorm32
         ln = LayerNorm32(32, affine=True)
         x = mx.random.normal((2, 32))
         out = ln(x)
@@ -46,20 +46,20 @@ class TestLayerNorm32:
 
 class TestMultiHeadRMSNorm:
     def test_output_shape(self):
-        from trellmlx.modules.attention import MultiHeadRMSNorm
+        from pixalmlx.modules.attention import MultiHeadRMSNorm
         rn = MultiHeadRMSNorm(head_dim=128, num_heads=12)
         x = mx.random.normal((4, 12, 128))  # [T, H, D]
         out = rn(x)
         assert out.shape == (4, 12, 128)
 
     def test_gamma_shape(self):
-        from trellmlx.modules.attention import MultiHeadRMSNorm
+        from pixalmlx.modules.attention import MultiHeadRMSNorm
         rn = MultiHeadRMSNorm(head_dim=128, num_heads=12)
         assert rn.gamma.shape == (12, 128), f"Expected [12, 128], got {rn.gamma.shape}"
 
     def test_unit_l2_norm(self):
         """After normalization with gamma=1, each vector should have L2 norm = sqrt(dim)."""
-        from trellmlx.modules.attention import MultiHeadRMSNorm
+        from pixalmlx.modules.attention import MultiHeadRMSNorm
         rn = MultiHeadRMSNorm(head_dim=64, num_heads=4)
         x = mx.random.normal((8, 4, 64)) * 10
         out = rn(x)
@@ -74,7 +74,7 @@ class TestMultiHeadRMSNorm:
 
 class TestScaledDotProductAttention:
     def test_self_attention_shape(self):
-        from trellmlx.modules.attention import scaled_dot_product_attention
+        from pixalmlx.modules.attention import scaled_dot_product_attention
         B, H, T, D = 1, 4, 16, 32
         q = mx.random.normal((B, H, T, D))
         k = mx.random.normal((B, H, T, D))
@@ -83,7 +83,7 @@ class TestScaledDotProductAttention:
         assert out.shape == (B, H, T, D)
 
     def test_cross_attention_shape(self):
-        from trellmlx.modules.attention import scaled_dot_product_attention
+        from pixalmlx.modules.attention import scaled_dot_product_attention
         B, H, T_q, T_kv, D = 1, 4, 8, 16, 32
         q = mx.random.normal((B, H, T_q, D))
         k = mx.random.normal((B, H, T_kv, D))
@@ -93,7 +93,7 @@ class TestScaledDotProductAttention:
 
     def test_attention_concentrates_on_matching_key(self):
         """When one key matches the query exactly, output should be close to its value."""
-        from trellmlx.modules.attention import scaled_dot_product_attention
+        from pixalmlx.modules.attention import scaled_dot_product_attention
         B, H, D = 1, 1, 64
         q = mx.zeros((B, H, 1, D))
         q = q.at[:, :, :, 0].add(10.0)  # strong signal in dim 0
@@ -107,7 +107,7 @@ class TestScaledDotProductAttention:
         assert mx.all(out[0, 0, 0] > 0.9).item()
 
     def test_masking(self):
-        from trellmlx.modules.attention import scaled_dot_product_attention
+        from pixalmlx.modules.attention import scaled_dot_product_attention
         B, H, T, D = 1, 1, 4, 8
         q = mx.random.normal((B, H, T, D))
         k = mx.random.normal((B, H, T, D))
@@ -130,7 +130,7 @@ class TestScaledDotProductAttention:
 
 class TestVarLenAttention:
     def test_single_sequence(self):
-        from trellmlx.modules.attention import varlen_attention_padded
+        from pixalmlx.modules.attention import varlen_attention_padded
         T, H, D = 16, 4, 32
         q = mx.random.normal((T, H, D))
         k = mx.random.normal((T, H, D))
@@ -139,7 +139,7 @@ class TestVarLenAttention:
         assert out.shape == (T, H, D)
 
     def test_two_sequences(self):
-        from trellmlx.modules.attention import varlen_attention_padded
+        from pixalmlx.modules.attention import varlen_attention_padded
         H, D = 4, 32
         T1, T2 = 8, 12
         T_total = T1 + T2
@@ -152,14 +152,14 @@ class TestVarLenAttention:
 
 class TestTimestepEmbedder:
     def test_output_shape(self):
-        from trellmlx.models.sparse_structure_flow import TimestepEmbedder
+        from pixalmlx.models.sparse_structure_flow import TimestepEmbedder
         te = TimestepEmbedder(1536)
         t = mx.array([0.0, 0.5, 1.0])
         out = te(t)
         assert out.shape == (3, 1536)
 
     def test_different_timesteps_different_embeddings(self):
-        from trellmlx.models.sparse_structure_flow import TimestepEmbedder
+        from pixalmlx.models.sparse_structure_flow import TimestepEmbedder
         te = TimestepEmbedder(256)
         t = mx.array([0.0, 500.0, 999.0])
         out = te(t)
@@ -173,7 +173,7 @@ class TestTimestepEmbedder:
 
 class TestSparseStructureFlowModel:
     def test_output_shape(self):
-        from trellmlx.models.sparse_structure_flow import SparseStructureFlowModel
+        from pixalmlx.models.sparse_structure_flow import SparseStructureFlowModel
         model = SparseStructureFlowModel(
             in_channels=8, out_channels=8, model_channels=64,
             num_heads=4, num_blocks=2, mlp_hidden=128,
@@ -188,7 +188,7 @@ class TestSparseStructureFlowModel:
     def test_parameter_count_small(self):
         """Small model parameter count should be predictable."""
         import mlx.utils
-        from trellmlx.models.sparse_structure_flow import SparseStructureFlowModel
+        from pixalmlx.models.sparse_structure_flow import SparseStructureFlowModel
         model = SparseStructureFlowModel(
             in_channels=8, out_channels=8, model_channels=64,
             num_heads=4, num_blocks=2, mlp_hidden=128,
@@ -202,7 +202,7 @@ class TestSparseStructureFlowModel:
     def test_full_size_parameter_count(self):
         """Full model should have ~1.29B parameters (excluding position embeddings)."""
         import mlx.utils
-        from trellmlx.models.sparse_structure_flow import SparseStructureFlowModel
+        from pixalmlx.models.sparse_structure_flow import SparseStructureFlowModel
         model = SparseStructureFlowModel()  # default = full size
         params = sum(p.size for _, p in mlx.utils.tree_flatten(model.parameters()))
         # RMSNorm gamma is now [H, D] instead of [D], adding (12*128 - 128) * 2 * 2 * 30
@@ -211,7 +211,7 @@ class TestSparseStructureFlowModel:
 
     def test_deterministic_with_seed(self):
         """Same seed should produce same output."""
-        from trellmlx.models.sparse_structure_flow import SparseStructureFlowModel
+        from pixalmlx.models.sparse_structure_flow import SparseStructureFlowModel
         model = SparseStructureFlowModel(
             in_channels=8, out_channels=8, model_channels=64,
             num_heads=4, num_blocks=2, mlp_hidden=128,

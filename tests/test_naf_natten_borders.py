@@ -16,7 +16,7 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
-from trellmlx.models.naf import neighborhood_attention
+from pixalmlx.models.naf import neighborhood_attention
 
 
 def _natten_start(i, n, K):

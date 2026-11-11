@@ -16,23 +16,23 @@ import numpy as np
 
 from generate_pixal3d import _denormalize_slat, _normalize_slat, extract_proj_features, TEX_SLAT_MEAN, TEX_SLAT_STD
 from scripts.download_models import DINO_REVISION, PIXAL_REVISION
-from trellmlx.checkpoint import load_checkpoint
-from trellmlx.conditioning import ZeroConditioning, prepare_sampling
-from trellmlx.models.pixal3d_flow import Pixal3DSLatFlowModel, Pixal3DSparseStructureFlowModel
-from trellmlx.models.sparse_structure_flow import _layernorm_noaffine
-from trellmlx.runtime import InferenceRuntime
-from trellmlx.samplers import flow_euler_sample
-from trellmlx.transformer_experiments import VARIANTS, configure_transformer
-from trellmlx.weight_loader import load_weights
+from pixalmlx.checkpoint import load_checkpoint
+from pixalmlx.conditioning import ZeroConditioning, prepare_sampling
+from pixalmlx.models.pixal3d_flow import Pixal3DSLatFlowModel, Pixal3DSparseStructureFlowModel
+from pixalmlx.models.sparse_structure_flow import _layernorm_noaffine
+from pixalmlx.runtime import InferenceRuntime
+from pixalmlx.samplers import flow_euler_sample
+from pixalmlx.transformer_experiments import VARIANTS, configure_transformer
+from pixalmlx.weight_loader import load_weights
 
 
 WEIGHTS = Path.home() / ".cache/huggingface/hub/models--TencentARC--Pixal3D/snapshots" / PIXAL_REVISION / "ckpts"
 
 
 def prepare(arguments):
-    from trellmlx.models.dinov3 import DINOv3ViT, load_dinov3_weights
-    from trellmlx.models.naf import NAF
-    from trellmlx.models.naf_loader import load_naf_weights
+    from pixalmlx.models.dinov3 import DINOv3ViT, load_dinov3_weights
+    from pixalmlx.models.naf import NAF
+    from pixalmlx.models.naf_loader import load_naf_weights
 
     if arguments.inputs.exists():
         raise ValueError("Refusing to overwrite frozen sampling inputs")
@@ -93,7 +93,7 @@ def errors(actual, expected):
 
 
 def decode_structure(latent, checkpoints):
-    from trellmlx.models.sparse_structure_decoder import SparseStructureDecoder
+    from pixalmlx.models.sparse_structure_decoder import SparseStructureDecoder
 
     decoder = SparseStructureDecoder()
     load_weights(decoder, str(WEIGHTS / "ss_dec_conv3d_16l8_fp16.safetensors"), streaming=True, verbose=False)
@@ -156,8 +156,8 @@ def run(arguments):
     provenance = {"revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
                   "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
                   "source_sha256": {name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
-                                    for name in ("scripts/investigate_sampling.py", "trellmlx/transformer_experiments.py",
-                                                 "trellmlx/samplers.py", "trellmlx/models/pixal3d_flow.py")}}
+                                    for name in ("scripts/investigate_sampling.py", "pixalmlx/transformer_experiments.py",
+                                                 "pixalmlx/samplers.py", "pixalmlx/models/pixal3d_flow.py")}}
     options = VARIANTS[arguments.variant]
     metadata = json.loads(arguments.inputs.with_suffix(".json").read_text())
     if metadata["stage"] != arguments.stage:

@@ -6,7 +6,7 @@ import mlx.nn as nn
 import numpy as np
 import pytest
 
-from trellmlx.runtime import BoundedCache, InferenceRuntime, Stage, StageGraph
+from pixalmlx.runtime import BoundedCache, InferenceRuntime, Stage, StageGraph
 
 
 def test_bounded_lru_cache_and_oversized_bypass():
@@ -111,7 +111,7 @@ def test_runtime_reports_memory_guideline_overshoot_without_claiming_a_hard_cap(
 
 def test_persistent_batch_reuses_one_runtime_and_checks_outputs(tmp_path, monkeypatch):
     import generate_pixal3d
-    from trellmlx.batch_inference import BatchJob, BatchRunOptions, run_batch
+    from pixalmlx.batch_inference import BatchJob, BatchRunOptions, run_batch
 
     seen = []
 

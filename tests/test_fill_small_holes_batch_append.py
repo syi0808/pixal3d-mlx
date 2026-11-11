@@ -2,7 +2,7 @@
 
 import numpy as np
 
-import trellmlx.mesh_cleanup as mc
+import pixalmlx.mesh_cleanup as mc
 
 
 def _make_disconnected_triangles(num_triangles: int):

@@ -16,7 +16,7 @@ def test_readme_uses_current_huggingface_cli():
 
 
 def test_cleanup_prefers_modern_mlx_clear_cache(monkeypatch):
-    import trellmlx.cleanup as cleanup
+    import pixalmlx.cleanup as cleanup
 
     calls = []
 
@@ -41,7 +41,7 @@ def test_cleanup_prefers_modern_mlx_clear_cache(monkeypatch):
 
 
 def test_cleanup_falls_back_to_metal_clear_cache(monkeypatch):
-    import trellmlx.cleanup as cleanup
+    import pixalmlx.cleanup as cleanup
 
     calls = []
 
@@ -63,7 +63,7 @@ def test_cleanup_falls_back_to_metal_clear_cache(monkeypatch):
 
 
 def test_cleanup_tolerates_headless_no_metal(monkeypatch):
-    import trellmlx.cleanup as cleanup
+    import pixalmlx.cleanup as cleanup
 
     calls = []
 
@@ -83,7 +83,7 @@ def test_cleanup_tolerates_headless_no_metal(monkeypatch):
 
 
 def test_cleanup_propagates_unrelated_synchronize_failure(monkeypatch):
-    import trellmlx.cleanup as cleanup
+    import pixalmlx.cleanup as cleanup
 
     calls = []
 
@@ -133,7 +133,7 @@ def test_generate_image_conditioning_failure_is_not_random_fallback(monkeypatch)
     real_import = builtins.__import__
 
     def fail_dino_imports(name, *args, **kwargs):
-        if name == "trellmlx.models.dinov3":
+        if name == "pixalmlx.models.dinov3":
             raise RuntimeError("native missing for test")
         if name == "torch":
             raise ImportError("torch missing for test")

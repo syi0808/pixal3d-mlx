@@ -17,13 +17,13 @@ import numpy as np
 
 from generate_pixal3d import TEX_SLAT_MEAN, TEX_SLAT_STD, _denormalize_slat, _normalize_slat, extract_proj_features
 from scripts.download_models import DINO_REVISION, PIXAL_REVISION
-from trellmlx.checkpoint import load_checkpoint
-from trellmlx.models.shape_slat_decoder import SLatDecoder, SparseConvNeXtBlock3d, SparseResBlockC2S3d
-from trellmlx.decoder_experiments import DecoderExperiment, ResearchDecoder
-from trellmlx.modules.sparse_conv import build_neighbor_map
-from trellmlx.runtime import InferenceRuntime
-from trellmlx.samplers import flow_euler_sample
-from trellmlx.weight_loader import load_weights
+from pixalmlx.checkpoint import load_checkpoint
+from pixalmlx.models.shape_slat_decoder import SLatDecoder, SparseConvNeXtBlock3d, SparseResBlockC2S3d
+from pixalmlx.decoder_experiments import DecoderExperiment, ResearchDecoder
+from pixalmlx.modules.sparse_conv import build_neighbor_map
+from pixalmlx.runtime import InferenceRuntime
+from pixalmlx.samplers import flow_euler_sample
+from pixalmlx.weight_loader import load_weights
 
 
 CHECKPOINT_ROOT = Path.home() / ".cache/huggingface/hub/models--TencentARC--Pixal3D/snapshots" / PIXAL_REVISION / "ckpts"
@@ -31,7 +31,7 @@ CHECKPOINT_ROOT = Path.home() / ".cache/huggingface/hub/models--TencentARC--Pixa
 
 @contextmanager
 def preserve_rope_dtype(enabled):
-    from trellmlx.models import sparse_structure_flow
+    from pixalmlx.models import sparse_structure_flow
 
     original = sparse_structure_flow.apply_rope
     if enabled:
@@ -92,10 +92,10 @@ class TracedDecoder(ResearchDecoder):
 
 
 def prepare_latent(arguments):
-    from trellmlx.models.dinov3 import DINOv3ViT, load_dinov3_weights
-    from trellmlx.models.naf import NAF
-    from trellmlx.models.naf_loader import load_naf_weights
-    from trellmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
+    from pixalmlx.models.dinov3 import DINOv3ViT, load_dinov3_weights
+    from pixalmlx.models.naf import NAF
+    from pixalmlx.models.naf_loader import load_naf_weights
+    from pixalmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
 
     if arguments.latent.exists():
         raise ValueError("Refusing to overwrite the frozen texture latent")
@@ -212,8 +212,8 @@ def decode(arguments):
 
 
 def audit_dtypes(arguments):
-    from trellmlx.models.pixal3d_flow import ProjModulatedBlock
-    from trellmlx.modules.rope import apply_rope
+    from pixalmlx.models.pixal3d_flow import ProjModulatedBlock
+    from pixalmlx.modules.rope import apply_rope
 
     block = ProjModulatedBlock(24, 1, 8, 32, 8)
     block.apply(lambda value: value.astype(mx.float16))

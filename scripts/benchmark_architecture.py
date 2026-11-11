@@ -10,15 +10,15 @@ import mlx.core as mx
 import numpy as np
 
 from scripts.benchmark_runtime import measure
-from trellmlx.models.naf import NAF
-from trellmlx.models.naf_loader import load_naf_weights
-from trellmlx.conditioning import ZeroConditioning
-from trellmlx.metal_kernels import neighborhood_attention_metal
-from trellmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
-from trellmlx.modules.proj_grid import _grid_sample_bilinear
-from trellmlx.modules.sparse_conv import build_neighbor_map
-from trellmlx.runtime import InferenceRuntime
-from trellmlx.samplers import flow_euler_sample
+from pixalmlx.models.naf import NAF
+from pixalmlx.models.naf_loader import load_naf_weights
+from pixalmlx.conditioning import ZeroConditioning
+from pixalmlx.metal_kernels import neighborhood_attention_metal
+from pixalmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
+from pixalmlx.modules.proj_grid import _grid_sample_bilinear
+from pixalmlx.modules.sparse_conv import build_neighbor_map
+from pixalmlx.runtime import InferenceRuntime
+from pixalmlx.samplers import flow_euler_sample
 
 
 def main():

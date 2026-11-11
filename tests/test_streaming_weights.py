@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from safetensors.numpy import save_file
 
-from trellmlx.weight_loader import load_weights
+from pixalmlx.weight_loader import load_weights
 
 
 @pytest.mark.parametrize("dtype", [None, mx.float32])

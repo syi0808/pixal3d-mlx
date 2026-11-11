@@ -11,10 +11,10 @@ import time
 import mlx.core as mx
 import numpy as np
 
-from trellmlx.models.naf import fused_neighborhood_attention, neighborhood_attention
-from trellmlx.models.shape_slat_decoder import SparseChannel2Spatial
-from trellmlx.modules.proj_grid import ProjGrid
-from trellmlx.modules.sparse_conv import SparseConv3d, build_neighbor_map
+from pixalmlx.models.naf import fused_neighborhood_attention, neighborhood_attention
+from pixalmlx.models.shape_slat_decoder import SparseChannel2Spatial
+from pixalmlx.modules.proj_grid import ProjGrid
+from pixalmlx.modules.sparse_conv import SparseConv3d, build_neighbor_map
 
 
 def measure(function, repeats):

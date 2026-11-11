@@ -17,12 +17,12 @@ class ReachedSampler(Exception):
 @pytest.mark.parametrize("bits", [0, 4, 8])
 def test_ss_entrypoint_preserves_conditioning_and_packed_weights(monkeypatch, bits):
     """The actual CLI must deliver fp32 context and executable packed weights."""
-    import trellmlx.models.dinov3 as dinov3
-    import trellmlx.models.naf as naf
-    import trellmlx.models.naf_loader as naf_loader
-    import trellmlx.models.pixal3d_flow as pixal_flow
-    import trellmlx.samplers as samplers
-    import trellmlx.weight_loader as weight_loader
+    import pixalmlx.models.dinov3 as dinov3
+    import pixalmlx.models.naf as naf
+    import pixalmlx.models.naf_loader as naf_loader
+    import pixalmlx.models.pixal3d_flow as pixal_flow
+    import pixalmlx.samplers as samplers
+    import pixalmlx.weight_loader as weight_loader
 
     class TinyFlow(nn.Module):
         def __init__(self, **kwargs):
@@ -81,16 +81,16 @@ def test_ss_entrypoint_preserves_conditioning_and_packed_weights(monkeypatch, bi
 def test_resume_texture_projection_uses_checkpoint_resolution(monkeypatch, resolution):
     import generate
     import resume_pixal3d
-    import trellmlx.checkpoint as checkpoint
-    import trellmlx.cleanup as cleanup
-    import trellmlx.mesh_extract as mesh_extract
-    import trellmlx.models.dinov3 as dinov3
-    import trellmlx.models.naf as naf
-    import trellmlx.models.naf_loader as naf_loader
-    import trellmlx.models.pixal3d_flow as pixal_flow
-    import trellmlx.models.shape_slat_decoder as shape_decoder
-    import trellmlx.samplers as samplers
-    import trellmlx.weight_loader as weight_loader
+    import pixalmlx.checkpoint as checkpoint
+    import pixalmlx.cleanup as cleanup
+    import pixalmlx.mesh_extract as mesh_extract
+    import pixalmlx.models.dinov3 as dinov3
+    import pixalmlx.models.naf as naf
+    import pixalmlx.models.naf_loader as naf_loader
+    import pixalmlx.models.pixal3d_flow as pixal_flow
+    import pixalmlx.models.shape_slat_decoder as shape_decoder
+    import pixalmlx.samplers as samplers
+    import pixalmlx.weight_loader as weight_loader
 
     class TinyDecoder:
         def __init__(self, **kwargs):
@@ -139,16 +139,16 @@ def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolu
     from actual_hr_resolution // 16, independently of image resolution.
     """
     import generate
-    import trellmlx.cleanup as cleanup
-    import trellmlx.mesh_extract as mesh_extract
-    import trellmlx.models.dinov3 as dinov3
-    import trellmlx.models.naf as naf
-    import trellmlx.models.naf_loader as naf_loader
-    import trellmlx.models.pixal3d_flow as pixal_flow
-    import trellmlx.models.shape_slat_decoder as shape_decoder
-    import trellmlx.models.sparse_structure_decoder as ss_decoder
-    import trellmlx.samplers as samplers
-    import trellmlx.weight_loader as weight_loader
+    import pixalmlx.cleanup as cleanup
+    import pixalmlx.mesh_extract as mesh_extract
+    import pixalmlx.models.dinov3 as dinov3
+    import pixalmlx.models.naf as naf
+    import pixalmlx.models.naf_loader as naf_loader
+    import pixalmlx.models.pixal3d_flow as pixal_flow
+    import pixalmlx.models.shape_slat_decoder as shape_decoder
+    import pixalmlx.models.sparse_structure_decoder as ss_decoder
+    import pixalmlx.samplers as samplers
+    import pixalmlx.weight_loader as weight_loader
 
     class TinySSDecoder:
         def __call__(self, z):

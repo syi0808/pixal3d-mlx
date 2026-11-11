@@ -40,7 +40,7 @@ def _spy_layernorm(monkeypatch, module):
 
 
 def test_pixal3d_ss_flow_terminal_norm_uses_torch_default_eps(monkeypatch):
-    from trellmlx.models import pixal3d_flow
+    from pixalmlx.models import pixal3d_flow
 
     calls = _spy_layernorm(monkeypatch, pixal3d_flow)
     R = 2
@@ -57,7 +57,7 @@ def test_pixal3d_ss_flow_terminal_norm_uses_torch_default_eps(monkeypatch):
 
 
 def test_pixal3d_slat_flow_terminal_norm_uses_torch_default_eps(monkeypatch):
-    from trellmlx.models import pixal3d_flow
+    from pixalmlx.models import pixal3d_flow
 
     calls = _spy_layernorm(monkeypatch, pixal3d_flow)
     N = 6
@@ -73,7 +73,7 @@ def test_pixal3d_slat_flow_terminal_norm_uses_torch_default_eps(monkeypatch):
 
 
 def test_shape_slat_decoder_terminal_norm_uses_torch_default_eps(monkeypatch):
-    from trellmlx.models import shape_slat_decoder
+    from pixalmlx.models import shape_slat_decoder
 
     calls = _spy_layernorm(monkeypatch, shape_slat_decoder)
     model = shape_slat_decoder.SLatDecoder(
@@ -87,7 +87,7 @@ def test_shape_slat_decoder_terminal_norm_uses_torch_default_eps(monkeypatch):
 
 
 def test_sparse_structure_decoder_channel_layernorm_uses_torch_default_eps():
-    from trellmlx.models.sparse_structure_decoder import (
+    from pixalmlx.models.sparse_structure_decoder import (
         ChannelLayerNorm32, SparseStructureDecoder,
     )
 
@@ -102,7 +102,7 @@ def test_sparse_structure_decoder_channel_layernorm_uses_torch_default_eps():
 
 
 def test_dinov3_layernorms_use_hf_config_eps(monkeypatch):
-    from trellmlx.models import dinov3
+    from pixalmlx.models import dinov3
 
     model = dinov3.DINOv3ViT(
         hidden_size=32, num_heads=2, num_layers=1, patch_size=16,
@@ -128,7 +128,7 @@ def test_dinov3_layernorms_use_hf_config_eps(monkeypatch):
 
 
 def test_fdg_softplus_is_linear_above_torch_threshold():
-    from trellmlx.mesh_extract import _softplus
+    from pixalmlx.mesh_extract import _softplus
 
     x = np.array([-5.0, 0.0, 5.0, 19.0, 25.0, 60.0], dtype=np.float32)
     out = _softplus(x)

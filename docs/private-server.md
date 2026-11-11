@@ -17,7 +17,7 @@ uv pip install --python .venv/bin/python -e '.[server,dev]'
 npm ci --prefix web
 npm run build --prefix web
 
-.venv/bin/python -m trellmlx.server
+.venv/bin/python -m pixalmlx.server
 ```
 
 Open `http://127.0.0.1:8000`. The server listens **only on loopback** and the
@@ -34,7 +34,7 @@ It is an interactive PBR renderer, not a Blender Cycles reference render.
 Options:
 
 ```bash
-.venv/bin/python -m trellmlx.server \
+.venv/bin/python -m pixalmlx.server \
   --port 8000 --data-dir outputs/server \
   --max-pending 20 --idle-cache-seconds 300
 ```
@@ -176,7 +176,7 @@ Client-supplied filenames and paths never control output paths or commands.
 ## Normal-corrected final exports
 
 `generate_pixal3d.py`, `resume_pixal3d.py`, and `reexport_pixal3d.py` now all use
-`trellmlx.glb_normals.export_with_corrected_normals`. The standalone correction
+`pixalmlx.glb_normals.export_with_corrected_normals`. The standalone correction
 CLI remains available and defaults to no validation cap rather than an
 implicit 5K limit.
 
@@ -197,7 +197,7 @@ GLB artifacts are not modified in place by this change.
 
 ```bash
 .venv/bin/python -m pytest -q tests/test_server.py tests/test_mesh_normals.py
-node --check trellmlx/server/static/studio.js
+node --check pixalmlx/server/static/studio.js
 ```
 
 The tests exercise token-free access, browser-origin/Host guards, durable serial claims, upload limits

@@ -65,7 +65,7 @@ def main(argv=None, runtime=None):
     if min(args.feature_cache_mb, args.conditioning_cache_mb, args.ffn_chunk_size, args.naf_tile_rows,
            args.decoder_eval_interval, args.max_faces) < 0:
         parser.error("Cache and chunk sizes must be nonnegative")
-    from trellmlx.runtime import InferenceRuntime
+    from pixalmlx.runtime import InferenceRuntime
 
     if runtime is None:
         with InferenceRuntime(memory_budget_bytes=int(args.memory_budget_gb * 1e9),
@@ -78,7 +78,7 @@ def main(argv=None, runtime=None):
 
 
 def _resume(args, runtime):
-    from trellmlx.runtime import checkpoint_fingerprint
+    from pixalmlx.runtime import checkpoint_fingerprint
 
     runtime.advance("shape_decode_and_mesh")
 
@@ -86,10 +86,10 @@ def _resume(args, runtime):
     mx.metal.reset_peak_memory()
     t_total = time.perf_counter()
 
-    from trellmlx.weight_loader import load_weights
-    from trellmlx.samplers import flow_euler_sample
-    from trellmlx.cleanup import cleanup_model
-    from trellmlx.checkpoint import load_checkpoint
+    from pixalmlx.weight_loader import load_weights
+    from pixalmlx.samplers import flow_euler_sample
+    from pixalmlx.cleanup import cleanup_model
+    from pixalmlx.checkpoint import load_checkpoint
 
     # Camera: manual FOV > camera saved with the generation checkpoint > default
     from generate_pixal3d import load_checkpointed_camera
@@ -122,7 +122,7 @@ def _resume(args, runtime):
 
     # === Stage 3: Shape Decode ===
     print("\n=== Stage 3: Decode Shape ===", flush=True)
-    from trellmlx.models.shape_slat_decoder import SLatDecoder
+    from pixalmlx.models.shape_slat_decoder import SLatDecoder
 
     shape_dec_ckpt = HF_PIXAL3D + "shape_dec_next_dc_f16c32_fp16.safetensors"
     shape_decoder = SLatDecoder(out_channels=7, pred_subdiv=True, spatial_order=args.sparse_order,
@@ -144,7 +144,7 @@ def _resume(args, runtime):
 
     # === Mesh Extraction ===
     print("\n=== Mesh Extraction ===", flush=True)
-    from trellmlx.mesh_extract import decoder_output_to_mesh
+    from pixalmlx.mesh_extract import decoder_output_to_mesh
 
     dec_coords_np = np.array(dec_coords)
     dec_feats_np = np.array(dec_out)
@@ -166,15 +166,15 @@ def _resume(args, runtime):
         keep_largest=args.keep_largest,
     )
     if args.max_faces:
-        from trellmlx.mesh_budget import enforce_face_limit
+        from pixalmlx.mesh_budget import enforce_face_limit
         vertices, faces = enforce_face_limit(vertices, faces, args.max_faces)
 
     # === DINOv3 + NAF for texture conditioning ===
     print("\n=== Loading DINOv3 + NAF ===", flush=True)
     runtime.advance("texture_conditioning")
-    from trellmlx.models.dinov3 import DINOv3ViT, load_dinov3_weights
-    from trellmlx.models.naf import NAF as NAFModel
-    from trellmlx.models.naf_loader import load_naf_weights
+    from pixalmlx.models.dinov3 import DINOv3ViT, load_dinov3_weights
+    from pixalmlx.models.naf import NAF as NAFModel
+    from pixalmlx.models.naf_loader import load_naf_weights
 
     DINOV3_WEIGHTS = os.path.expanduser(
         "~/.cache/huggingface/hub/models--facebook--dinov3-vitl16-pretrain-lvd1689m/snapshots/"
@@ -199,7 +199,7 @@ def _resume(args, runtime):
 
     # === Stage 4: Texture SLat ===
     print("\n=== Stage 4: Texture SLat ===", flush=True)
-    from trellmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
+    from pixalmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
 
     TEX_SAMPLER = dict(steps=12, guidance_strength=1.0, guidance_rescale=0.0,
                        guidance_interval=(0.6, 0.9), rescale_t=3.0)
@@ -232,7 +232,7 @@ def _resume(args, runtime):
                                   lambda model: load_weights(model, HF_PIXAL3D + "slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors",
                                                              verbose=False, streaming=True), retain=False)
     if args.quantize:
-        from trellmlx.quantize import quantize_model
+        from pixalmlx.quantize import quantize_model
 
         quantize_model(tex_flow, bits=args.quantize)
     if args.slat_precision == "mixed":
@@ -295,7 +295,7 @@ def _resume(args, runtime):
 
     # === Stage 6: Texture Bake + GLB ===
     print("\n=== Stage 6: Texture Bake + GLB ===", flush=True)
-    from trellmlx.texture_bake import uv_unwrap, bake_texture
+    from pixalmlx.texture_bake import uv_unwrap, bake_texture
     import trimesh
     from trimesh.visual.material import PBRMaterial
 
@@ -338,7 +338,7 @@ def _resume(args, runtime):
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    from trellmlx.glb_normals import export_with_corrected_normals
+    from pixalmlx.glb_normals import export_with_corrected_normals
 
     runtime.advance("normal_correction")
     export_with_corrected_normals(textured_mesh, args.output, max_faces=args.max_faces)

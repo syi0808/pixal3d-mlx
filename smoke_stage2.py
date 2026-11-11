@@ -23,16 +23,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", help="Input image")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output", default="/tmp/trellis-mlx-stage2.glb")
+    parser.add_argument("--output", default="/tmp/pixalmlx-stage2.glb")
     args = parser.parse_args()
 
     mx.random.seed(args.seed)
 
-    from trellmlx.models.sparse_structure_flow import SparseStructureFlowModel
-    from trellmlx.models.sparse_structure_decoder import SparseStructureDecoder
-    from trellmlx.models.slat_flow import SLatFlowModel
-    from trellmlx.weight_loader import load_weights
-    from trellmlx.samplers import flow_euler_sample
+    from pixalmlx.models.sparse_structure_flow import SparseStructureFlowModel
+    from pixalmlx.models.sparse_structure_decoder import SparseStructureDecoder
+    from pixalmlx.models.slat_flow import SLatFlowModel
+    from pixalmlx.weight_loader import load_weights
+    from pixalmlx.samplers import flow_euler_sample
 
     HF_BASE = os.path.expanduser(
         "~/.cache/huggingface/hub/models--microsoft--TRELLIS.2-4B/"
@@ -125,14 +125,14 @@ def main():
     print(f"  Saved: {args.output}", flush=True)
 
     # Release Metal resources
-    from trellmlx.cleanup import cleanup_model, cleanup
+    from pixalmlx.cleanup import cleanup_model, cleanup
     cleanup_model(slat_flow)
     cleanup()
 
 
 def _extract_image_features(image_path, resolution=512):
     try:
-        from trellmlx.models.dinov3 import extract_features
+        from pixalmlx.models.dinov3 import extract_features
         features = extract_features(image_path, image_size=resolution)
         print(f"  Features: {features.shape} (MLX)", flush=True)
         return features

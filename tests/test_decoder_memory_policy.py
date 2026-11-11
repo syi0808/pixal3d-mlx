@@ -3,8 +3,8 @@ import mlx.utils
 import numpy as np
 import pytest
 
-from trellmlx.models.shape_slat_decoder import SLatDecoder, SparseResBlockC2S3d
-from trellmlx.modules.sparse_conv import SparseConv3d, build_neighbor_map
+from pixalmlx.models.shape_slat_decoder import SLatDecoder, SparseResBlockC2S3d
+from pixalmlx.modules.sparse_conv import SparseConv3d, build_neighbor_map
 
 
 @pytest.mark.parametrize("interval", [1, 3, 9])

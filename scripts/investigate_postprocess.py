@@ -12,10 +12,10 @@ import time
 import numpy as np
 
 from generate import _cleanup_and_simplify_mesh
-from trellmlx.checkpoint import load_checkpoint
-from trellmlx.mesh_budget import enforce_face_limit
-from trellmlx.mesh_experiments import experimental_cleanup
-from trellmlx.texture_bake import uv_unwrap
+from pixalmlx.checkpoint import load_checkpoint
+from pixalmlx.mesh_budget import enforce_face_limit
+from pixalmlx.mesh_experiments import experimental_cleanup
+from pixalmlx.texture_bake import uv_unwrap
 
 
 def signature(array):
@@ -27,10 +27,10 @@ def prepare(arguments):
     import mlx.core as mx
 
     from scripts.download_models import PIXAL_REVISION
-    from trellmlx.models.shape_slat_decoder import SLatDecoder
-    from trellmlx.mesh_extract import decoder_output_to_mesh
-    from trellmlx.runtime import InferenceRuntime
-    from trellmlx.weight_loader import load_weights
+    from pixalmlx.models.shape_slat_decoder import SLatDecoder
+    from pixalmlx.mesh_extract import decoder_output_to_mesh
+    from pixalmlx.runtime import InferenceRuntime
+    from pixalmlx.weight_loader import load_weights
 
     if arguments.raw_mesh.exists():
         raise ValueError("Refusing to overwrite raw geometry")

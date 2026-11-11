@@ -1,4 +1,4 @@
-"""Generate a 3D mesh from a single image using trellis2mlx.
+"""Generate a 3D mesh from a single image using pixalmlx.
 
 Two-pass pipeline matching the TRELLIS.2 reference:
   1. Image → DINOv3 features
@@ -113,12 +113,12 @@ def _cleanup_and_simplify_mesh(
             return vertices, faces
         # Winding unification only (source unify_face_orientations follows
         # shared-edge flips and never inverts by signed volume).
-        from trellmlx.mesh_cleanup import orient_faces_by_adjacency
+        from pixalmlx.mesh_cleanup import orient_faces_by_adjacency
         return orient_faces_by_adjacency(vertices, faces, verbose=False)
 
     if not no_cleanup:
         if cleanup_mesh is None:
-            from trellmlx.mesh_cleanup import cleanup_mesh as local_cleanup
+            from pixalmlx.mesh_cleanup import cleanup_mesh as local_cleanup
 
             component_filter_applied = False
 
@@ -191,7 +191,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate 3D mesh from image via MLX")
     parser.add_argument("--image", nargs="+", help="Input image(s) — multiple images enable multi-view conditioning")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output", default="/tmp/trellis-mlx-mesh.glb")
+    parser.add_argument("--output", default="/tmp/pixalmlx-mesh.glb")
     parser.add_argument("--resolution", type=int, default=1024,
                         help="Mesh resolution (default: 1024, matching reference cascade)")
     parser.add_argument("--max-tokens", type=int, default=49152,
@@ -226,19 +226,19 @@ def main():
         "snapshots/25e0d31ffbebe4b5a97464dd851910efc3002d96/ckpts/"
     )
 
-    from trellmlx.weight_loader import load_weights
-    from trellmlx.samplers import flow_euler_sample
-    from trellmlx.cleanup import cleanup_model, cleanup
+    from pixalmlx.weight_loader import load_weights
+    from pixalmlx.samplers import flow_euler_sample
+    from pixalmlx.cleanup import cleanup_model, cleanup
 
     if args.quantize:
-        from trellmlx.quantize import quantize_model
+        from pixalmlx.quantize import quantize_model
 
     # === Image conditioning ===
     if args.image:
         # Preprocess: background removal + center crop
         image_paths = args.image
         if not args.no_rembg:
-            from trellmlx.preprocess import preprocess_image
+            from pixalmlx.preprocess import preprocess_image
             import tempfile
             processed_paths = []
             for img_path in image_paths:
@@ -266,8 +266,8 @@ def main():
 
     # === Stage 1: Sparse Structure ===
     print("=== Stage 1: Sparse Structure ===", flush=True)
-    from trellmlx.models.sparse_structure_flow import SparseStructureFlowModel
-    from trellmlx.models.sparse_structure_decoder import SparseStructureDecoder
+    from pixalmlx.models.sparse_structure_flow import SparseStructureFlowModel
+    from pixalmlx.models.sparse_structure_decoder import SparseStructureDecoder
 
     ss_flow = SparseStructureFlowModel()
     load_weights(ss_flow, HF_4B + "ss_flow_img_dit_1_3B_64_bf16.safetensors", verbose=False)
@@ -308,7 +308,7 @@ def main():
 
     # === Stage 2a: LR Shape Latent ===
     print("\n=== Stage 2a: LR Shape Latent ===", flush=True)
-    from trellmlx.models.slat_flow import SLatFlowModel
+    from pixalmlx.models.slat_flow import SLatFlowModel
 
     # Sampler params from pipeline.json
     SHAPE_SAMPLER = dict(steps=12, guidance_strength=7.5, guidance_rescale=0.5,
@@ -346,7 +346,7 @@ def main():
 
     # === Stage 2b: Upsample to get HR coordinates ===
     print("\n=== Stage 2b: Upsample → HR coordinates ===", flush=True)
-    from trellmlx.models.shape_slat_decoder import SLatDecoder
+    from pixalmlx.models.shape_slat_decoder import SLatDecoder
 
     decoder = SLatDecoder(out_channels=7, pred_subdiv=True)
     load_weights(decoder, HF_4B + "shape_dec_next_dc_f16c32_fp16.safetensors", verbose=False)
@@ -432,7 +432,7 @@ def main():
 
     # === Mesh Extraction ===
     print("\n=== Mesh Extraction ===", flush=True)
-    from trellmlx.mesh_extract import decoder_output_to_mesh
+    from pixalmlx.mesh_extract import decoder_output_to_mesh
 
     dec_coords_np = np.array(dec_coords)
     dec_feats_np = np.array(dec_out)
@@ -526,7 +526,7 @@ def main():
 
     # === Stage 6: Texture Baking ===
     print("\n=== Stage 6: Texture Baking ===", flush=True)
-    from trellmlx.texture_bake import uv_unwrap, bake_texture
+    from pixalmlx.texture_bake import uv_unwrap, bake_texture
 
     tex_coords_spatial = np.array(tex_coords)[:, 1:4]  # drop batch dim
 
@@ -592,7 +592,7 @@ def main():
 def _extract_image_features(image_path, resolution=512):
     """Extract DINOv3 image features, preferring native MLX path."""
     try:
-        from trellmlx.models.dinov3 import extract_features
+        from pixalmlx.models.dinov3 import extract_features
         features = extract_features(image_path, image_size=resolution)
         print(f"  Features: {features.shape} (MLX)", flush=True)
         return features

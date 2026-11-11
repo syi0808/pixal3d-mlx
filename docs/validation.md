@@ -1,6 +1,10 @@
 # Validation Evidence
 
-This document records local validation evidence for `trellis2mlx`: commands, hardware, timings, artifact inspection, and witness mechanics.
+This document records local validation evidence for `pixal3d-mlx`: commands, hardware, timings, artifact inspection, and witness mechanics.
+
+Historical commands and witness paths retain their original names so the
+recorded evidence remains traceable. Current Python imports and module
+commands use `pixalmlx`.
 
 ## M2 Pro Tahoe Run
 

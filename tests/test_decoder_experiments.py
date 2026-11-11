@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from scripts.investigate_decoder import preserve_rope_dtype
-from trellmlx.decoder_experiments import DecoderExperiment, ResearchDecoder, fused_skip_add
-from trellmlx.models.shape_slat_decoder import SLatDecoder
+from pixalmlx.decoder_experiments import DecoderExperiment, ResearchDecoder, fused_skip_add
+from pixalmlx.models.shape_slat_decoder import SLatDecoder
 
 
 @pytest.mark.parametrize("parent_channels,output_channels", [(32, 16), (32, 4), (32, 2)])
@@ -50,7 +50,7 @@ def test_decoder_ablation_preserves_weights_coordinates_and_values(options):
 
 
 def test_experimental_rotary_cast_is_scoped_and_restored_on_failure():
-    from trellmlx.models import sparse_structure_flow
+    from pixalmlx.models import sparse_structure_flow
 
     original = sparse_structure_flow.apply_rope
     query = mx.ones((2, 1, 8), dtype=mx.float16)
@@ -66,7 +66,7 @@ def test_experimental_rotary_cast_is_scoped_and_restored_on_failure():
 
 
 def test_experimental_rotary_cast_keeps_block_activations_half_precision():
-    from trellmlx.models.pixal3d_flow import ProjModulatedBlock
+    from pixalmlx.models.pixal3d_flow import ProjModulatedBlock
 
     block = ProjModulatedBlock(24, 1, 8, 32, 8)
     block.apply(lambda value: value.astype(mx.float16))

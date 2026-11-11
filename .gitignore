@@ -1,7 +1,10 @@
-trellis2mlx.egg-info/
+*.egg-info/
 __pycache__/
+*.py[cod]
 .venv/
 .pytest_cache/
+build/
+dist/
 
 # Large output artifacts
 outputs/*.glb
@@ -11,4 +14,4 @@ weights/
 outputs/runtime/
 outputs/.pixal3d-server.lock
 web/node_modules/
-trellmlx/server/static/vendor/
+**/server/static/vendor/

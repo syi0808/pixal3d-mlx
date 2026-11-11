@@ -16,10 +16,10 @@ from trimesh.visual.material import PBRMaterial
 
 from generate import _cleanup_and_simplify_mesh
 from generate_pixal3d import to_pixal3d_glb_frame
-from trellmlx.checkpoint import load_checkpoint
-from trellmlx.mesh_budget import enforce_face_limit
-from trellmlx.runtime import InferenceRuntime
-from trellmlx.texture_bake import bake_texture, uv_unwrap
+from pixalmlx.checkpoint import load_checkpoint
+from pixalmlx.mesh_budget import enforce_face_limit
+from pixalmlx.runtime import InferenceRuntime
+from pixalmlx.texture_bake import bake_texture, uv_unwrap
 
 
 def reexport(arguments):
@@ -65,7 +65,7 @@ def reexport(arguments):
                            metallicFactor=1.0, roughnessFactor=1.0, alphaMode=alpha_mode, doubleSided=True)
     mesh = trimesh.Trimesh(vertices=export_vertices, faces=uv_faces, vertex_normals=geometry.vertex_normals,
                            process=False, visual=trimesh.visual.TextureVisuals(uv=export_uvs, material=material))
-    from trellmlx.glb_normals import export_with_corrected_normals
+    from pixalmlx.glb_normals import export_with_corrected_normals
 
     normal_report = export_with_corrected_normals(mesh, arguments.output, max_faces=arguments.max_faces)
     payload = arguments.output.read_bytes()

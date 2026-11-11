@@ -30,7 +30,7 @@ Image → textured 3D mesh with PBR materials. No NVIDIA GPU required. Entire pi
 ## Quick start
 
 ```bash
-git clone https://github.com/lyonsno/pixal3d-mlx.git
+git clone https://github.com/syi0808/pixal3d-mlx.git
 cd pixal3d-mlx
 uv venv .venv --python python3.12
 source .venv/bin/activate
@@ -69,7 +69,7 @@ changing triangles or embedded textures. See the
 ```bash
 uv pip install --python .venv/bin/python -e '.[server]'
 npm ci --prefix web && npm run build --prefix web
-.venv/bin/python -m trellmlx.server
+.venv/bin/python -m pixalmlx.server
 ```
 
 The server binds only to `127.0.0.1:8000`; no login or API token is required.
@@ -139,15 +139,29 @@ INT4 quantization (`--quantize 4`) reduces flow model weights 3.5x with comparab
 
 ## Architecture
 
+The distribution is `pixal3d-mlx`; Python imports and module commands use
+`pixalmlx`. Shared runtime, sampling, mesh, and math modules use model-neutral
+names. Model-specific implementations and official weight IDs retain their
+upstream names.
+
+After updating an existing checkout, reinstall the editable package with
+`uv pip install --python .venv/bin/python -e '.[server,dev]'` and rebuild the
+viewer with `npm run build --prefix web`. Update external imports and server
+launch commands to `pixalmlx`. Batch and quantization reports now use the
+`pixalmlx.batch_report.v1` and `pixalmlx.quant_bench.v1` schema identifiers;
+the quantization checkpoint override is `PIXALMLX_CHECKPOINT_ROOT`. New batch
+outputs default to the `pixal` prefix. Existing checkpoints and historical
+validation artifacts are not renamed.
+
 ```
-trellmlx/
+pixalmlx/
 ├── models/
 │   ├── pixal3d_flow.py          # Pixal3D SS + SLat flow models with ProjectAttention
 │   ├── dinov3_proj.py           # DINOv3 + NAF + ProjGrid feature extraction
 │   ├── naf.py                   # NAF feature upsampler (windowed neighborhood attention)
 │   ├── naf_loader.py            # NAF weight loader
-│   ├── sparse_structure_flow.py # Base TRELLIS.2 SS flow model
-│   ├── slat_flow.py             # Base TRELLIS.2 SLat flow model
+│   ├── sparse_structure_flow.py # Base sparse-structure DiT flow model
+│   ├── slat_flow.py             # Base sparse-latent DiT flow model
 │   ├── shape_slat_decoder.py    # Sparse UNet decoder
 │   ├── sparse_structure_decoder.py
 │   └── dinov3.py                # DINOv3 ViT-L/16
@@ -198,6 +212,7 @@ See [docs/moge-camera-estimation.md](docs/moge-camera-estimation.md) for impleme
 
 ## Credits
 
+- [Original MLX port](https://github.com/lyonsno/pixal3d-mlx) by Noah Lyons — the upstream codebase for this fork
 - [Pixal3D](https://github.com/TencentARC/Pixal3D) by TencentARC — the model and paper (SIGGRAPH 2026)
 - [TRELLIS.2](https://github.com/microsoft/TRELLIS.2) by Microsoft Research — the backbone architecture
 - [NAF](https://github.com/valeoai/NAF) by Valeo.ai — Neural Attention Fields feature upsampler

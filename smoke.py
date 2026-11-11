@@ -7,7 +7,7 @@ Without --image, uses random conditioning (won't look like anything real,
 but proves the sampling loop works).
 
 Outputs:
-    /tmp/trellis-mlx-smoke.glb — voxel mesh of the occupancy grid
+    /tmp/pixalmlx-smoke.glb — voxel mesh of the occupancy grid
 """
 
 import argparse
@@ -23,15 +23,15 @@ def main():
     parser.add_argument("--image", help="Input image (uses native MLX DINOv3)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--steps", type=int, default=12)
-    parser.add_argument("--output", default="/tmp/trellis-mlx-smoke.glb")
+    parser.add_argument("--output", default="/tmp/pixalmlx-smoke.glb")
     args = parser.parse_args()
 
     mx.random.seed(args.seed)
 
     # Load models
-    from trellmlx.models.sparse_structure_flow import SparseStructureFlowModel
-    from trellmlx.models.sparse_structure_decoder import SparseStructureDecoder
-    from trellmlx.weight_loader import load_weights
+    from pixalmlx.models.sparse_structure_flow import SparseStructureFlowModel
+    from pixalmlx.models.sparse_structure_decoder import SparseStructureDecoder
+    from pixalmlx.weight_loader import load_weights
 
     print("Loading SparseStructureFlowModel (1.29B params)...", flush=True)
     flow_model = SparseStructureFlowModel()
@@ -69,7 +69,7 @@ def main():
     noise = mx.random.normal((1, in_channels, R, R, R))
 
     print(f"Sampling latent ({args.steps} steps, {R}³ grid)...", flush=True)
-    from trellmlx.samplers import flow_euler_sample
+    from pixalmlx.samplers import flow_euler_sample
 
     t0 = time.perf_counter()
     z_s = flow_euler_sample(
@@ -109,14 +109,14 @@ def main():
     print(f"  Saved: {args.output}", flush=True)
 
     # Release Metal resources
-    from trellmlx.cleanup import cleanup
+    from pixalmlx.cleanup import cleanup
     cleanup()
 
 
 def _extract_image_features(image_path: str, resolution: int = 512) -> mx.array:
     """Extract DINOv3 image features, preferring native MLX path."""
     try:
-        from trellmlx.models.dinov3 import extract_features
+        from pixalmlx.models.dinov3 import extract_features
         features = extract_features(image_path, image_size=resolution)
         print(f"  Features: {features.shape} (MLX)", flush=True)
         return features

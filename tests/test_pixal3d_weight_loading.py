@@ -11,8 +11,8 @@ import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from trellmlx.models.pixal3d_flow import Pixal3DSparseStructureFlowModel
-from trellmlx.weight_loader import load_weights
+from pixalmlx.models.pixal3d_flow import Pixal3DSparseStructureFlowModel
+from pixalmlx.weight_loader import load_weights
 
 
 SS_FLOW_CKPT = os.path.expanduser(

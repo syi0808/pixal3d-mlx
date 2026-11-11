@@ -9,7 +9,7 @@ from collections import Counter
 
 import numpy as np
 
-from trellmlx.mesh_cleanup import fill_small_holes, repair_non_manifold_edges
+from pixalmlx.mesh_cleanup import fill_small_holes, repair_non_manifold_edges
 
 
 def _directed_edge_counts(faces):

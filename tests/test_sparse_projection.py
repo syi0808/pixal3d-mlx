@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from generate_pixal3d import extract_proj_features, index_proj_by_coords
-from trellmlx.modules.proj_grid import ProjGrid
+from pixalmlx.modules.proj_grid import ProjGrid
 
 
 @pytest.mark.parametrize("resolution", [4, 8])

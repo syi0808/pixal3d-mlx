@@ -2,7 +2,7 @@
 
 import gc
 
-from trellmlx.cleanup import _clear_mlx_cache
+from pixalmlx.cleanup import _clear_mlx_cache
 
 
 def pytest_runtest_teardown(item, nextitem):

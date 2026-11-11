@@ -11,7 +11,7 @@ is torch.std (Bessel-corrected) over all non-batch dims.
 import mlx.core as mx
 import numpy as np
 
-from trellmlx.samplers import flow_euler_sample, _pred_to_xstart, _xstart_to_pred
+from pixalmlx.samplers import flow_euler_sample, _pred_to_xstart, _xstart_to_pred
 
 
 def _run_one_step(noise, pred_pos, pred_neg, guidance_strength, **kwargs):

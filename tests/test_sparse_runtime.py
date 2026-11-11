@@ -4,8 +4,8 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
-from trellmlx.models.shape_slat_decoder import SparseChannel2Spatial
-from trellmlx.modules.sparse_conv import NeighborMap, SparseConv3d, build_neighbor_map
+from pixalmlx.models.shape_slat_decoder import SparseChannel2Spatial
+from pixalmlx.modules.sparse_conv import NeighborMap, SparseConv3d, build_neighbor_map
 
 
 def reference_neighbors(coordinates, kernel_size):

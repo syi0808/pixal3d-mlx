@@ -3,10 +3,10 @@ import mlx.utils
 import numpy as np
 import pytest
 
-from trellmlx.models.pixal3d_flow import Pixal3DSLatFlowModel, Pixal3DSparseStructureFlowModel
-from trellmlx.samplers import flow_euler_sample
-from trellmlx.transformer_experiments import VARIANTS, configure_transformer
-from trellmlx.conditioning import ZeroConditioning
+from pixalmlx.models.pixal3d_flow import Pixal3DSLatFlowModel, Pixal3DSparseStructureFlowModel
+from pixalmlx.samplers import flow_euler_sample
+from pixalmlx.transformer_experiments import VARIANTS, configure_transformer
+from pixalmlx.conditioning import ZeroConditioning
 
 
 @pytest.mark.parametrize("dense", [True, False])
@@ -38,8 +38,8 @@ def test_transformer_experiments_preserve_weights_fp32_state_and_close_values(de
 
 
 def test_asynchronous_ffn_evaluation_preserves_sync_reference_with_real_chunks():
-    from trellmlx.models.sparse_structure_flow import FeedForward
-    from trellmlx.transformer_experiments import ResearchFeedForward, TransformerExperiment
+    from pixalmlx.models.sparse_structure_flow import FeedForward
+    from pixalmlx.transformer_experiments import ResearchFeedForward, TransformerExperiment
 
     original = FeedForward(32, 64)
     original.chunk_size = 4

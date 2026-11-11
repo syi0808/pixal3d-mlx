@@ -7,8 +7,16 @@ import subprocess
 import pytest
 
 
+def test_default_output_prefix_uses_pixal(tmp_path):
+    from pixalmlx.batch_inference import BatchRequest, build_batch_jobs
+
+    request = BatchRequest(images=("image.png",), seeds=(42,), output_dir=tmp_path)
+
+    assert build_batch_jobs(request)[0].output_path == tmp_path / "pixal-seed-42.glb"
+
+
 def test_build_batch_jobs_expands_seeds_and_outputs(tmp_path):
-    from trellmlx.batch_inference import BatchRequest, build_batch_jobs
+    from pixalmlx.batch_inference import BatchRequest, build_batch_jobs
 
     request = BatchRequest(
         images=("assets/shoe_input.png",),
@@ -32,7 +40,7 @@ def test_build_batch_jobs_expands_seeds_and_outputs(tmp_path):
 
 
 def test_build_batch_jobs_requires_output_count_to_match_seed_count(tmp_path):
-    from trellmlx.batch_inference import BatchRequest, build_batch_jobs
+    from pixalmlx.batch_inference import BatchRequest, build_batch_jobs
 
     request = BatchRequest(
         images=("assets/shoe_input.png",),
@@ -46,7 +54,7 @@ def test_build_batch_jobs_requires_output_count_to_match_seed_count(tmp_path):
 
 
 def test_run_batch_records_effective_concurrency_and_mohel_indicator(tmp_path, monkeypatch):
-    from trellmlx.batch_inference import BatchJob, BatchRunOptions, run_batch
+    from pixalmlx.batch_inference import BatchJob, BatchRunOptions, run_batch
 
     monkeypatch.delenv("PYTHONPATH", raising=False)
     calls = []
@@ -96,7 +104,7 @@ def test_run_batch_records_effective_concurrency_and_mohel_indicator(tmp_path, m
     assert all(call[2]["PYTHONPATH"] == str(tmp_path) for call in calls)
 
     persisted = json.loads(report_path.read_text())
-    assert persisted["schema"] == "trellis2mlx.batch_report.v1"
+    assert persisted["schema"] == "pixalmlx.batch_report.v1"
     assert persisted["requested_concurrency"] == 3
     assert persisted["effective_concurrency"] == 3
     assert persisted["diagnostics"] == ["known_metal_deadlock_risk:max_concurrent>2"]
@@ -104,7 +112,7 @@ def test_run_batch_records_effective_concurrency_and_mohel_indicator(tmp_path, m
 
 
 def test_run_batch_prepends_repo_root_to_existing_pythonpath(tmp_path, monkeypatch):
-    from trellmlx.batch_inference import BatchJob, BatchRunOptions, run_batch
+    from pixalmlx.batch_inference import BatchJob, BatchRunOptions, run_batch
 
     monkeypatch.setenv("PYTHONPATH", "/opt/extra")
     seen_pythonpaths = []

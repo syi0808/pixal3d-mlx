@@ -4,8 +4,8 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
-from trellmlx.modules.sparse_conv import build_neighbor_map
-from trellmlx.sparse_runtime import morton_permutation, prepare_gpu_subdivision
+from pixalmlx.modules.sparse_conv import build_neighbor_map
+from pixalmlx.sparse_runtime import morton_permutation, prepare_gpu_subdivision
 
 
 @pytest.mark.parametrize("kernel_size", [1, 3, 5])
@@ -53,7 +53,7 @@ def test_gpu_subdivision_order_and_morton_order():
 
 
 def test_morton_decoder_preserves_features_at_each_coordinate():
-    from trellmlx.models.shape_slat_decoder import SLatDecoder
+    from pixalmlx.models.shape_slat_decoder import SLatDecoder
 
     model = SLatDecoder(out_channels=7, latent_channels=8, model_channels=[16, 8], num_blocks=[0, 0])
     coordinates = mx.array([[0, 0, 0, 1], [0, 1, 0, 0]])

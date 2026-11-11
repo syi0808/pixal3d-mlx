@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from trellmlx.glb_normals import accessor_array, correct_glb, image_hashes, read_glb
+from pixalmlx.glb_normals import accessor_array, correct_glb, image_hashes, read_glb
 
 
 def main():

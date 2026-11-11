@@ -20,7 +20,7 @@ documented in [transformer-sampling-investigation.md](transformer-sampling-inves
 
 ## Execution and memory ownership
 
-`trellmlx.runtime.StageGraph` compiles explicit stage dependencies, prunes dead
+`pixalmlx.runtime.StageGraph` compiles explicit stage dependencies, prunes dead
 nodes, orders producers before consumers, and releases owned resources after
 their last use. Nested array outputs are evaluated before inputs are released.
 Image encoding and active projection use this graph in the live generation
@@ -133,7 +133,7 @@ neither is enabled by default. Existing INT4/INT8 quantization is also opt-in.
 ## Persistent asset batches
 
 ```bash
-.venv/bin/python -m trellmlx.batch_inference \
+.venv/bin/python -m pixalmlx.batch_inference \
   --engine pixal3d-persistent --image assets/shoe_input.png \
   --seeds 42,43,44 --resolution 512 --max-concurrent 1 \
   --output-dir outputs/asset-batch --report outputs/asset-batch/report.json

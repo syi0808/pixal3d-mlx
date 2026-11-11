@@ -56,7 +56,7 @@ def _upstream_preprocess(image: Image.Image, bg_color=(0, 0, 0)) -> Image.Image:
 
 def test_projection_features_use_upstream_pixal3d_crop(monkeypatch, tmp_path):
     import generate_pixal3d
-    import trellmlx.models.dinov3_proj as dinov3_proj
+    import pixalmlx.models.dinov3_proj as dinov3_proj
 
     image_path = _rgba_fixture(tmp_path / "in.png")
     seen = {}
@@ -85,7 +85,7 @@ def test_projection_features_use_upstream_pixal3d_crop(monkeypatch, tmp_path):
 
 
 def _stub_camera_route(monkeypatch, tmp_path, captured):
-    import trellmlx.moge_camera as moge_camera
+    import pixalmlx.moge_camera as moge_camera
 
     def estimator(image_path, **kwargs):
         captured["moge_image"] = np.array(Image.open(image_path).convert("RGB"))
@@ -96,10 +96,10 @@ def _stub_camera_route(monkeypatch, tmp_path, captured):
 
 
 def _stub_models(monkeypatch):
-    import trellmlx.models.dinov3 as dinov3
-    import trellmlx.models.naf as naf
-    import trellmlx.models.naf_loader as naf_loader
-    import trellmlx.weight_loader as weight_loader
+    import pixalmlx.models.dinov3 as dinov3
+    import pixalmlx.models.naf as naf
+    import pixalmlx.models.naf_loader as naf_loader
+    import pixalmlx.weight_loader as weight_loader
 
     monkeypatch.setattr(dinov3, "DINOv3ViT", lambda: object())
     monkeypatch.setattr(dinov3, "load_dinov3_weights", lambda *a, **k: 0)
@@ -163,11 +163,11 @@ def test_generation_checkpoints_the_camera(monkeypatch, tmp_path):
 def test_resume_uses_checkpointed_camera(monkeypatch, tmp_path):
     import generate
     import resume_pixal3d
-    import trellmlx.cleanup as cleanup
-    import trellmlx.mesh_extract as mesh_extract
-    import trellmlx.models.shape_slat_decoder as shape_decoder
-    import trellmlx.models.pixal3d_flow as pixal_flow
-    from trellmlx.checkpoint import save_checkpoint
+    import pixalmlx.cleanup as cleanup
+    import pixalmlx.mesh_extract as mesh_extract
+    import pixalmlx.models.shape_slat_decoder as shape_decoder
+    import pixalmlx.models.pixal3d_flow as pixal_flow
+    from pixalmlx.checkpoint import save_checkpoint
 
     ckpt = tmp_path / "ckpt"
     save_checkpoint(str(ckpt), "shape_latent", hr_slat=np.zeros((1, 32), dtype=np.float32),

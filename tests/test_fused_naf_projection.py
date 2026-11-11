@@ -2,8 +2,8 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
-from trellmlx.models.naf import NAF
-from trellmlx.modules.proj_grid import _grid_sample_bilinear
+from pixalmlx.models.naf import NAF
+from pixalmlx.modules.proj_grid import _grid_sample_bilinear
 
 
 @pytest.mark.parametrize("chunk_size", [1, 3, 20])

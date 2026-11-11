@@ -35,7 +35,7 @@ def test_benchmark_docstring_names_narrow_synthetic_scope():
 
 
 def test_quantize_docstring_does_not_promise_measured_speedup():
-    text = Path("trellmlx/quantize.py").read_text()
+    text = Path("pixalmlx/quantize.py").read_text()
 
     assert "weight memory" in text
     assert "no measured M2 Pro speedup" in text
@@ -68,7 +68,7 @@ def test_initial_report_records_route_identity(tmp_path):
 
     report = bench.initial_report(args, command_line=["bench", "--image", str(asset)])
 
-    assert report["schema"] == "trellis2mlx.quant_bench.v1"
+    assert report["schema"] == "pixalmlx.quant_bench.v1"
     assert report["status"] == "running"
     assert report["asset"]["path"] == str(asset)
     assert report["asset"]["exists"] is True
@@ -109,7 +109,7 @@ def test_failure_report_is_written_before_primary_output(tmp_path):
     bench = _load_module()
 
     report = {
-        "schema": "trellis2mlx.quant_bench.v1",
+        "schema": "pixalmlx.quant_bench.v1",
         "status": "running",
         "results": [],
     }
@@ -142,6 +142,14 @@ def test_default_report_path_is_unique_within_one_second(monkeypatch):
 
     assert first != second
     assert first.parent != second.parent
+    assert first.parent.name.startswith("pixalmlx-quant-bench-")
+
+
+def test_checkpoint_root_uses_pixal_environment_override(tmp_path, monkeypatch):
+    bench = _load_module()
+    monkeypatch.setenv("PIXALMLX_CHECKPOINT_ROOT", str(tmp_path))
+
+    assert bench.parse_args([]).checkpoint_root == tmp_path
 
 
 def test_existing_report_requires_explicit_overwrite(tmp_path):

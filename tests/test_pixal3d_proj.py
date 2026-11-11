@@ -10,10 +10,10 @@ import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from trellmlx.modules.proj_grid import ProjGrid, project_points_to_image, _grid_sample_bilinear
-from trellmlx.modules.proj_attention import ProjectAttention
-from trellmlx.models.sparse_structure_flow import MultiHeadAttention
-from trellmlx.models.pixal3d_flow import (
+from pixalmlx.modules.proj_grid import ProjGrid, project_points_to_image, _grid_sample_bilinear
+from pixalmlx.modules.proj_attention import ProjectAttention
+from pixalmlx.models.sparse_structure_flow import MultiHeadAttention
+from pixalmlx.models.pixal3d_flow import (
     ProjModulatedBlock, Pixal3DSparseStructureFlowModel, Pixal3DSLatFlowModel,
 )
 

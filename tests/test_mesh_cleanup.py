@@ -10,7 +10,7 @@ Tests use synthetic meshes with known defects to verify:
 import numpy as np
 import pytest
 
-from trellmlx.mesh_cleanup import (
+from pixalmlx.mesh_cleanup import (
     cleanup_mesh,
     keep_largest_component,
     remove_small_components,

@@ -13,10 +13,10 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-from trellmlx.glb_normals import export_with_corrected_normals
-from trellmlx.server.app import JobOptions, MAX_REQUEST, Settings, WorkerSupervisor, create_app
-from trellmlx.server.store import JobStore, QueueFull
-from trellmlx.server.worker import execute_job, generation_arguments
+from pixalmlx.glb_normals import export_with_corrected_normals
+from pixalmlx.server.app import JobOptions, MAX_REQUEST, Settings, WorkerSupervisor, create_app
+from pixalmlx.server.store import JobStore, QueueFull
+from pixalmlx.server.worker import execute_job, generation_arguments
 
 
 def image_bytes():
@@ -258,8 +258,8 @@ def test_untrusted_hosts_are_rejected_to_resist_dns_rebinding(service, host):
 
 
 def test_cli_stays_on_loopback_without_creating_a_token(tmp_path, monkeypatch, capsys):
-    from trellmlx.server import __main__ as command
-    import trellmlx.server.app as server_app
+    from pixalmlx.server import __main__ as command
+    import pixalmlx.server.app as server_app
     import uvicorn
 
     static = tmp_path / "static"
@@ -292,7 +292,7 @@ def test_supervisor_lock_prevents_two_server_instances(tmp_path):
     first, second = WorkerSupervisor(settings, store), WorkerSupervisor(settings, store)
     from unittest.mock import patch
 
-    with patch("trellmlx.server.app.threading.Thread", NoThread):
+    with patch("pixalmlx.server.app.threading.Thread", NoThread):
         first.start()
         try:
             with pytest.raises(RuntimeError, match="already owns"):

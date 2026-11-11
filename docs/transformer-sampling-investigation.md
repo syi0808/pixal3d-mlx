@@ -9,7 +9,7 @@ loading path; HR weights retain their production FP16 storage with FP32
 activations. There is no new precision conversion, quantization, or training.
 
 **Production generation defaults are unchanged.** The new code is isolated in
-`trellmlx/transformer_experiments.py` and `scripts/investigate_sampling.py`.
+`pixalmlx/transformer_experiments.py` and `scripts/investigate_sampling.py`.
 The previously generated high-poly, 5K, and 20K GLBs are not modified.
 
 The frozen source is the turnip / seed 42 run:

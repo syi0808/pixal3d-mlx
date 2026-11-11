@@ -105,7 +105,7 @@ def prepare_conditioning_image(image_path, output_path, no_rembg=False):
     that both MoGe-2 and every projection stage must consume."""
     if no_rembg:
         return image_path
-    from trellmlx.preprocess import preprocess_image as rembg_preprocess
+    from pixalmlx.preprocess import preprocess_image as rembg_preprocess
     out_dir = os.path.dirname(os.path.abspath(output_path))
     os.makedirs(out_dir, exist_ok=True)
     stem = os.path.splitext(os.path.basename(output_path))[0]
@@ -117,7 +117,7 @@ def prepare_conditioning_image(image_path, output_path, no_rembg=False):
 
 def load_checkpointed_camera(ckpt_dir):
     """Return the camera saved with a generation checkpoint, or None."""
-    from trellmlx.checkpoint import load_checkpoint
+    from pixalmlx.checkpoint import load_checkpoint
     if not os.path.exists(os.path.join(ckpt_dir, "camera.json")):
         return None
     meta = load_checkpoint(ckpt_dir, "camera")
@@ -174,7 +174,7 @@ def extract_proj_features(image_path, dinov3_model, grid_resolution, image_size,
               D = 1024 without upsample, 2048 with bilinear upsample
         neg_cond: dict with zeros
     """
-    from trellmlx.models.dinov3_proj import DinoV3ProjFeatureExtractor, preprocess_image
+    from pixalmlx.models.dinov3_proj import DinoV3ProjFeatureExtractor, preprocess_image
 
     extractor = DinoV3ProjFeatureExtractor(
         dinov3_model, image_size=image_size, grid_resolution=grid_resolution,
@@ -188,7 +188,7 @@ def extract_proj_features(image_path, dinov3_model, grid_resolution, image_size,
     img = Image.open(image_path).convert("RGB")
     if not no_rembg:
         try:
-            from trellmlx.preprocess import preprocess_image as rembg_preprocess
+            from pixalmlx.preprocess import preprocess_image as rembg_preprocess
             img = rembg_preprocess(image_path, crop_scale=PIXAL3D_CROP_SCALE)
         except ImportError:
             pass
@@ -203,7 +203,7 @@ def extract_proj_features(image_path, dinov3_model, grid_resolution, image_size,
     if coords is not None:
         options["coords"] = coords
     if feature_cache is not None:
-        from trellmlx.runtime import Stage, StageGraph, image_fingerprint
+        from pixalmlx.runtime import Stage, StageGraph, image_fingerprint
 
         model_key = getattr(dinov3_model, "_runtime_fingerprint", id(dinov3_model))
         cache_key = (image_fingerprint(image_path), image_size, no_rembg, model_key)
@@ -227,7 +227,7 @@ def extract_proj_features(image_path, dinov3_model, grid_resolution, image_size,
     mx.eval(z_global, z_proj)
 
     cond = {'global': z_global, 'proj': z_proj}
-    from trellmlx.conditioning import ZeroConditioning
+    from pixalmlx.conditioning import ZeroConditioning
 
     neg_cond = ZeroConditioning({
         'global': mx.zeros_like(z_global),
@@ -240,7 +240,7 @@ def extract_proj_features(image_path, dinov3_model, grid_resolution, image_size,
 def cast_conditioning_to_dtype(cond, dtype):
     """Cast an MLX conditioning payload without changing its container shape."""
     if isinstance(cond, dict):
-        from trellmlx.conditioning import ZeroConditioning
+        from pixalmlx.conditioning import ZeroConditioning
 
         result = {key: cast_conditioning_to_dtype(value, dtype) for key, value in cond.items()}
         return ZeroConditioning(result) if isinstance(cond, ZeroConditioning) else result
@@ -296,7 +296,7 @@ def index_proj_by_coords(cond, neg_cond, coords_4d, grid_resolution, target_dim=
         'global': neg_cond['global'],
         'proj': mx.zeros_like(z_proj_sparse),
     }
-    from trellmlx.conditioning import ZeroConditioning
+    from pixalmlx.conditioning import ZeroConditioning
 
     if isinstance(neg_cond, ZeroConditioning):
         sparse_neg_cond = ZeroConditioning(sparse_neg_cond)
@@ -398,7 +398,7 @@ def main(argv=None, runtime=None):
         print(f"Resuming via resume_pixal3d.py --ckpt {args.resume}", flush=True)
         return resume_pixal3d.main(cmd, runtime=runtime)
 
-    from trellmlx.runtime import InferenceRuntime
+    from pixalmlx.runtime import InferenceRuntime
 
     if runtime is None:
         with InferenceRuntime(memory_budget_bytes=int(args.memory_budget_gb * 1e9),
@@ -411,7 +411,7 @@ def main(argv=None, runtime=None):
 
 
 def _generate(args, runtime):
-    from trellmlx.runtime import checkpoint_fingerprint, image_fingerprint
+    from pixalmlx.runtime import checkpoint_fingerprint, image_fingerprint
 
     runtime.advance("preprocess_and_camera")
     mx.random.seed(args.seed)
@@ -428,7 +428,7 @@ def _generate(args, runtime):
     elif not args.no_moge:
         try:
             print("=== MoGe-2 Camera Estimation (MLX) ===", flush=True)
-            from trellmlx.moge_camera import estimate_camera_params_mlx
+            from pixalmlx.moge_camera import estimate_camera_params_mlx
             camera_key = image_fingerprint(cond_image)
             camera_params = runtime.camera.get(camera_key)
             if camera_params is None:
@@ -450,10 +450,10 @@ def _generate(args, runtime):
         "snapshots/0b31f9160aa400719af409098bff7936a932f726/ckpts/"
     )
 
-    from trellmlx.weight_loader import load_weights
-    from trellmlx.samplers import flow_euler_sample
-    from trellmlx.cleanup import cleanup_model, cleanup
-    from trellmlx.checkpoint import save_checkpoint, load_checkpoint, has_checkpoint
+    from pixalmlx.weight_loader import load_weights
+    from pixalmlx.samplers import flow_euler_sample
+    from pixalmlx.cleanup import cleanup_model, cleanup
+    from pixalmlx.checkpoint import save_checkpoint, load_checkpoint, has_checkpoint
 
     ckpt_dir = args.save_checkpoints
     save_ckpts = ckpt_dir is not None
@@ -462,7 +462,7 @@ def _generate(args, runtime):
 
     # === DINOv3 backbone (shared across stages) ===
     print("=== Loading DINOv3 backbone ===", flush=True)
-    from trellmlx.models.dinov3 import DINOv3ViT, load_dinov3_weights
+    from pixalmlx.models.dinov3 import DINOv3ViT, load_dinov3_weights
 
     DINOV3_WEIGHTS = os.path.expanduser(
         "~/.cache/huggingface/hub/models--facebook--dinov3-vitl16-pretrain-lvd1689m/"
@@ -482,8 +482,8 @@ def _generate(args, runtime):
     # === Stage 1: Sparse Structure (proj) ===
     print("\n=== Stage 1: Sparse Structure (proj) ===", flush=True)
     runtime.advance("sparse_structure")
-    from trellmlx.models.pixal3d_flow import Pixal3DSparseStructureFlowModel
-    from trellmlx.models.sparse_structure_decoder import SparseStructureDecoder
+    from pixalmlx.models.pixal3d_flow import Pixal3DSparseStructureFlowModel
+    from pixalmlx.models.sparse_structure_decoder import SparseStructureDecoder
 
     # Extract features for SS stage (grid_resolution=16, image_size=512)
     print("  Extracting proj features (SS, 512, grid=16)...", flush=True)
@@ -506,7 +506,7 @@ def _generate(args, runtime):
                                                             target_dtype=mx.float32 if args.ss_precision == "float32" else mx.float16),
                                  retain=False)
     if args.quantize:
-        from trellmlx.quantize import quantize_model
+        from pixalmlx.quantize import quantize_model
         quantize_model(ss_flow, bits=args.quantize)
     # Upcast sparse structure flow to fp32 for CFG rescale stability.
     # bf16 precision noise gets amplified ~5x per Euler step through the
@@ -573,8 +573,8 @@ def _generate(args, runtime):
         return
 
     runtime.advance("lr_conditioning_and_shape")
-    from trellmlx.models.naf import NAF as NAFModel
-    from trellmlx.models.naf_loader import load_naf_weights
+    from pixalmlx.models.naf import NAF as NAFModel
+    from pixalmlx.models.naf_loader import load_naf_weights
 
     naf_path = os.path.join(os.path.dirname(__file__), "weights", "naf_release.safetensors")
     naf = NAFModel()
@@ -587,8 +587,8 @@ def _generate(args, runtime):
 
     # === Stage 2a: LR Shape Latent (proj, 512) ===
     print("\n=== Stage 2a: LR Shape Latent (proj, 512) ===", flush=True)
-    from trellmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
-    from trellmlx.models.shape_slat_decoder import SLatDecoder
+    from pixalmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
+    from pixalmlx.models.shape_slat_decoder import SLatDecoder
 
     SHAPE_SAMPLER = dict(steps=12, guidance_strength=7.5, guidance_rescale=0.5,
                          guidance_interval=(0.6, 1.0), rescale_t=3.0)
@@ -784,7 +784,7 @@ def _generate(args, runtime):
 
     # === Mesh Extraction ===
     print("\n=== Mesh Extraction ===", flush=True)
-    from trellmlx.mesh_extract import decoder_output_to_mesh
+    from pixalmlx.mesh_extract import decoder_output_to_mesh
 
     dec_coords_np = np.array(dec_coords)
     dec_feats_np = np.array(dec_out)
@@ -797,7 +797,7 @@ def _generate(args, runtime):
     )
     print(f"  Extracted: {time.perf_counter()-t0:.1f}s ({len(vertices):,}V {len(faces):,}F)", flush=True)
 
-    # Use the same multi-pass cleanup+simplify as trellis2mlx generate.py
+    # Use the same multi-pass cleanup+simplify as generate.py
     from generate import _cleanup_and_simplify_mesh
     vertices, faces = _cleanup_and_simplify_mesh(
         vertices, faces,
@@ -806,7 +806,7 @@ def _generate(args, runtime):
         keep_largest=args.keep_largest,
     )
     if args.max_faces:
-        from trellmlx.mesh_budget import enforce_face_limit
+        from pixalmlx.mesh_budget import enforce_face_limit
         vertices, faces = enforce_face_limit(vertices, faces, args.max_faces)
 
     if save_ckpts:
@@ -952,7 +952,7 @@ def _generate(args, runtime):
 
     # === Stage 6: Texture Bake + GLB Export ===
     print("\n=== Stage 6: Texture Bake + GLB ===", flush=True)
-    from trellmlx.texture_bake import uv_unwrap, bake_texture
+    from pixalmlx.texture_bake import uv_unwrap, bake_texture
     import trimesh
     from trimesh.visual.material import PBRMaterial
 
@@ -1004,7 +1004,7 @@ def _generate(args, runtime):
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    from trellmlx.glb_normals import export_with_corrected_normals
+    from pixalmlx.glb_normals import export_with_corrected_normals
 
     runtime.advance("normal_correction")
     export_with_corrected_normals(textured_mesh, args.output, max_faces=args.max_faces)

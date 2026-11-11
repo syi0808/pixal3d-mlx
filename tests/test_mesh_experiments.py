@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from trellmlx import mesh_cleanup
-from trellmlx.mesh_experiments import experimental_cleanup, grouped_face_components, sparse_corner_repair
+from pixalmlx import mesh_cleanup
+from pixalmlx.mesh_experiments import experimental_cleanup, grouped_face_components, sparse_corner_repair
 
 
 @pytest.mark.parametrize("seed", range(12))

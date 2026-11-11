@@ -13,7 +13,7 @@ import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from trellmlx.models.naf import (
+from pixalmlx.models.naf import (
     NAF, NAFRoPE, NAFCrossAttention, EncBlock, make_encoder,
     neighborhood_attention,
 )
@@ -320,14 +320,14 @@ class TestNAFWeightLoading:
 
     def test_all_weights_loaded(self):
         """All 37 model parameters should be loaded."""
-        from trellmlx.models.naf_loader import load_naf_weights
+        from pixalmlx.models.naf_loader import load_naf_weights
         model = NAF()
         skipped = load_naf_weights(model, NAF_WEIGHTS, verbose=True)
         assert len(skipped) == 0, f"Unexpected skipped keys: {skipped}"
 
     def test_loaded_model_nontrivial(self):
         """Loaded model should produce non-zero, non-NaN output."""
-        from trellmlx.models.naf_loader import load_naf_weights
+        from pixalmlx.models.naf_loader import load_naf_weights
         model = NAF()
         load_naf_weights(model, NAF_WEIGHTS, verbose=False)
 
@@ -341,7 +341,7 @@ class TestNAFWeightLoading:
 
     def test_encoder_weights_nontrivial(self):
         """Encoder conv weights should not be all zeros after loading."""
-        from trellmlx.models.naf_loader import load_naf_weights
+        from pixalmlx.models.naf_loader import load_naf_weights
         model = NAF()
         load_naf_weights(model, NAF_WEIGHTS, verbose=False)
 
@@ -362,7 +362,7 @@ class TestNAFKeyRemapping:
     """Test weight key remapping logic."""
 
     def test_encoder_remap(self):
-        from trellmlx.models.naf_loader import _remap_key
+        from pixalmlx.models.naf_loader import _remap_key
         # First layer goes through ReflectConv2d wrapper
         assert _remap_key("image_encoder.encoder.0.weight") == "encoder_1x1.0.conv.weight"
         assert _remap_key("image_encoder.encoder.0.bias") == "encoder_1x1.0.conv.bias"
@@ -371,14 +371,14 @@ class TestNAFKeyRemapping:
         assert _remap_key("image_encoder.encoder.2.norm2.bias") == "encoder_1x1.2.norm2.bias"
 
     def test_sem_encoder_remap(self):
-        from trellmlx.models.naf_loader import _remap_key
+        from pixalmlx.models.naf_loader import _remap_key
         assert _remap_key("image_encoder.sem_encoder.0.weight") == "encoder_3x3.0.conv.weight"
         assert _remap_key("image_encoder.sem_encoder.1.conv1.weight") == "encoder_3x3.1.conv1.weight"
 
     def test_rope_remap(self):
-        from trellmlx.models.naf_loader import _remap_key
+        from pixalmlx.models.naf_loader import _remap_key
         assert _remap_key("image_encoder.rope.periods") == "rope.periods"
 
     def test_unknown_key_unchanged(self):
-        from trellmlx.models.naf_loader import _remap_key
+        from pixalmlx.models.naf_loader import _remap_key
         assert _remap_key("some.other.key") == "some.other.key"

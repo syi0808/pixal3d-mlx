@@ -13,10 +13,10 @@ import mlx.utils
 import numpy as np
 
 from scripts.download_models import PIXAL_REVISION
-from trellmlx.checkpoint import load_checkpoint
-from trellmlx.models.shape_slat_decoder import SLatDecoder
-from trellmlx.runtime import InferenceRuntime
-from trellmlx.weight_loader import load_weights
+from pixalmlx.checkpoint import load_checkpoint
+from pixalmlx.models.shape_slat_decoder import SLatDecoder
+from pixalmlx.runtime import InferenceRuntime
+from pixalmlx.weight_loader import load_weights
 
 
 def array_signature(value):

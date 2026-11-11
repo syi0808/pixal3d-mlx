@@ -17,8 +17,8 @@ def test_moge_mlx_import():
 
 
 def test_moge_camera_reexports():
-    """trellmlx.moge_camera should re-export MLX functions from moge_mlx.camera."""
-    from trellmlx.moge_camera import (
+    """pixalmlx.moge_camera should re-export MLX functions from moge_mlx.camera."""
+    from pixalmlx.moge_camera import (
         estimate_camera_params_mlx,
         _compute_distance_from_fov,
     )
@@ -28,14 +28,14 @@ def test_moge_camera_reexports():
 
 
 def test_moge_camera_native_adapter_preserves_upstream_fallback():
-    from trellmlx.moge_camera import _upstream_estimate_camera_params_mlx as from_trellmlx
+    from pixalmlx.moge_camera import _upstream_estimate_camera_params_mlx as from_pixalmlx
     from moge_mlx.camera import estimate_camera_params_mlx as from_moge
 
-    assert from_trellmlx is from_moge
+    assert from_pixalmlx is from_moge
 
 
 def test_moge_camera_adapter_delegates_when_native_weights_are_missing(tmp_path, monkeypatch):
-    import trellmlx.moge_camera as camera
+    import pixalmlx.moge_camera as camera
 
     monkeypatch.setattr(camera, "NATIVE_CAMERA_WEIGHTS", tmp_path / "absent.safetensors")
     captured = []

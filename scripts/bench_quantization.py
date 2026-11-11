@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark TRELLIS2MLX flow-model quantization variants.
+"""Benchmark flow-model quantization variants on MLX.
 
 This is a sparse flow and synthetic 512-shape-SLat stress benchmark, not a full
 four-flow rerun of ``generate.py --quantize``. It writes an incremental JSON
@@ -24,7 +24,7 @@ from typing import Any
 import numpy as np
 
 
-SCHEMA = "trellis2mlx.quant_bench.v1"
+SCHEMA = "pixalmlx.quant_bench.v1"
 VARIANT_BITS = {
     "fp16": 0,
     "int8": 8,
@@ -95,7 +95,7 @@ def _stage_arg(value: str) -> str:
 def default_report_path() -> Path:
     run_id = time.strftime("%Y%m%d-%H%M%S")
     unique = f"{os.getpid()}-{time.time_ns()}"
-    return Path("/tmp") / f"trellis2mlx-quant-bench-{run_id}-{unique}" / "report.json"
+    return Path("/tmp") / f"pixalmlx-quant-bench-{run_id}-{unique}" / "report.json"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -103,11 +103,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--image", type=Path, help="Input image for native MLX DINOv3 conditioning")
     parser.add_argument("--report", type=Path, default=None, help="JSON report path")
     parser.add_argument("--overwrite-report", action="store_true", help="Overwrite an existing JSON report")
-    parser.add_argument("--repo-root", type=Path, default=None, help="Effective trellis2mlx repo root")
+    parser.add_argument("--repo-root", type=Path, default=None, help="Effective pixal3d-mlx repo root")
     parser.add_argument(
         "--checkpoint-root",
         type=Path,
-        default=Path(os.environ.get("TRELLIS2MLX_CHECKPOINT_ROOT", DEFAULT_CHECKPOINT_ROOT)).expanduser(),
+        default=Path(os.environ.get("PIXALMLX_CHECKPOINT_ROOT", DEFAULT_CHECKPOINT_ROOT)).expanduser(),
         help="Directory containing converted TRELLIS.2-4B checkpoint safetensors",
     )
     parser.add_argument("--variants", type=_variant_arg, default="fp16,int8,int4")
@@ -284,7 +284,7 @@ def _load_conditioning(args: argparse.Namespace, report: dict[str, Any], report_
     if not args.image.exists():
         raise FileNotFoundError(f"input image does not exist: {args.image}")
 
-    from trellmlx.models.dinov3 import extract_features
+    from pixalmlx.models.dinov3 import extract_features
 
     t0 = time.perf_counter()
     cond = extract_features(str(args.image), image_size=args.image_size)
@@ -319,7 +319,7 @@ def add_result_warnings(result: dict[str, Any]) -> None:
 
 def _cleanup_runtime(model=None) -> None:
     try:
-        from trellmlx.cleanup import cleanup_model, cleanup
+        from pixalmlx.cleanup import cleanup_model, cleanup
 
         if model is not None:
             cleanup_model(model)
@@ -332,10 +332,10 @@ def _cleanup_runtime(model=None) -> None:
 def _time_ss_flow(*, args: argparse.Namespace, label: str, bits: int, cond_np: np.ndarray) -> dict[str, Any]:
     import mlx.core as mx
 
-    from trellmlx.models.sparse_structure_flow import SparseStructureFlowModel
-    from trellmlx.quantize import quantize_model
-    from trellmlx.samplers import flow_euler_sample
-    from trellmlx.weight_loader import load_weights
+    from pixalmlx.models.sparse_structure_flow import SparseStructureFlowModel
+    from pixalmlx.quantize import quantize_model
+    from pixalmlx.samplers import flow_euler_sample
+    from pixalmlx.weight_loader import load_weights
 
     result: dict[str, Any] = {
         "stage": "ss-flow",
@@ -411,10 +411,10 @@ def _synthetic_slat_coords(tokens: int) -> np.ndarray:
 def _time_slat_flow(*, args: argparse.Namespace, label: str, bits: int, cond_np: np.ndarray) -> dict[str, Any]:
     import mlx.core as mx
 
-    from trellmlx.models.slat_flow import SLatFlowModel
-    from trellmlx.quantize import quantize_model
-    from trellmlx.samplers import flow_euler_sample
-    from trellmlx.weight_loader import load_weights
+    from pixalmlx.models.slat_flow import SLatFlowModel
+    from pixalmlx.quantize import quantize_model
+    from pixalmlx.samplers import flow_euler_sample
+    from pixalmlx.weight_loader import load_weights
 
     result: dict[str, Any] = {
         "stage": "slat-flow",

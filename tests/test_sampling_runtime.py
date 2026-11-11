@@ -3,10 +3,10 @@ import mlx.utils
 import numpy as np
 import pytest
 
-from trellmlx.conditioning import PreparedConditioning
-from trellmlx.models.pixal3d_flow import Pixal3DSLatFlowModel, Pixal3DSparseStructureFlowModel
-from trellmlx.models.sparse_structure_flow import FeedForward
-from trellmlx.samplers import flow_euler_sample
+from pixalmlx.conditioning import PreparedConditioning
+from pixalmlx.models.pixal3d_flow import Pixal3DSLatFlowModel, Pixal3DSparseStructureFlowModel
+from pixalmlx.models.sparse_structure_flow import FeedForward
+from pixalmlx.samplers import flow_euler_sample
 
 
 def test_bounded_cache_admits_fixed_working_set_without_scan_thrashing():
@@ -68,7 +68,7 @@ def test_sampling_cache_preserves_outputs_and_computes_rope_once(monkeypatch, de
 
 
 def test_sampler_clears_invariant_cache_when_a_block_fails(monkeypatch):
-    import trellmlx.conditioning as conditioning
+    import pixalmlx.conditioning as conditioning
 
     model = Pixal3DSLatFlowModel(in_channels=8, out_channels=8, model_channels=32,
                                  num_heads=4, num_blocks=1, mlp_hidden=64,
@@ -109,7 +109,7 @@ def test_experimental_mixed_precision_preserves_fp32_sampler_state(dense):
 
 
 def test_symbolic_unconditional_context_eliminates_query_and_projection_gemms(monkeypatch):
-    from trellmlx.conditioning import ZeroConditioning
+    from pixalmlx.conditioning import ZeroConditioning
 
     model = Pixal3DSLatFlowModel(in_channels=8, out_channels=8, model_channels=32,
                                  num_heads=4, num_blocks=1, mlp_hidden=64,
@@ -135,7 +135,7 @@ def test_symbolic_unconditional_context_eliminates_query_and_projection_gemms(mo
 
 
 def test_zero_conditioning_sampling_matches_explicit_zero_features():
-    from trellmlx.conditioning import ZeroConditioning
+    from pixalmlx.conditioning import ZeroConditioning
 
     model = Pixal3DSLatFlowModel(in_channels=8, out_channels=8, model_channels=32,
                                  num_heads=4, num_blocks=2, mlp_hidden=64,

@@ -4,7 +4,7 @@ import pytest
 import trimesh
 
 from scripts.correct_glb_normals import accessor_array, correct_glb, image_hashes, read_glb
-from trellmlx.mesh_normals import smooth_corner_normals
+from pixalmlx.mesh_normals import smooth_corner_normals
 
 
 def test_uv_split_sphere_corners_share_smooth_normals():
@@ -104,7 +104,7 @@ def test_final_export_normal_correction_is_uncapped_and_atomic(tmp_path):
     import hashlib
     import json
 
-    from trellmlx.glb_normals import export_with_corrected_normals
+    from pixalmlx.glb_normals import export_with_corrected_normals
 
     mesh = trimesh.creation.icosphere(subdivisions=5)
     output = tmp_path / "mesh.glb"
