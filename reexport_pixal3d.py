@@ -17,6 +17,7 @@ from trimesh.visual.material import PBRMaterial
 from generate import _cleanup_and_simplify_mesh
 from generate_pixal3d import to_pixal3d_glb_frame
 from pixalmlx.checkpoint import load_checkpoint
+from pixalmlx.cgal_holes import add_hole_fill_argument, validate_hole_fill_backend
 from pixalmlx.mesh_budget import enforce_face_limit
 from pixalmlx.runtime import InferenceRuntime
 from pixalmlx.texture_bake import bake_texture, uv_unwrap
@@ -37,7 +38,7 @@ def reexport(arguments):
     budget_diagnostics = {}
     if arguments.target_faces:
         vertices, faces = _cleanup_and_simplify_mesh(vertices, faces, target_faces=arguments.target_faces,
-                                                     no_cleanup=False)
+                                                     no_cleanup=False, hole_fill_backend=arguments.hole_fill_backend)
     if arguments.max_faces:
         vertices, faces = enforce_face_limit(vertices, faces, arguments.max_faces, diagnostics=budget_diagnostics)
     timings["simplify_seconds"] = time.perf_counter() - stage_started
@@ -84,6 +85,7 @@ def reexport(arguments):
     report = {"status": "complete", "route": "mesh_texture_checkpoint_reexport", "neural_inference": False,
               "source_checkpoints": str(arguments.ckpt.resolve()), "output": str(arguments.output.resolve()),
               "max_faces": arguments.max_faces, "target_faces": arguments.target_faces,
+              "hole_fill_backend": arguments.hole_fill_backend,
               "raw_mesh": None if arguments.raw_mesh is None else str(arguments.raw_mesh.resolve()),
               "raw_mesh_sha256": None if arguments.raw_mesh is None else hashlib.sha256(arguments.raw_mesh.read_bytes()).hexdigest(),
               "input_faces": input_faces, "exported_faces": exported_faces,
@@ -109,6 +111,7 @@ def main(argv=None):
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--max-faces", type=int, default=0, help="Strict final triangle limit (0=disabled)")
     parser.add_argument("--target-faces", type=int, default=0, help="Soft triangle target with standard mesh cleanup")
+    add_hole_fill_argument(parser)
     parser.add_argument("--raw-mesh", type=Path,
                         help="Raw decoder geometry for soft-target cleanup, before component filtering/splitting")
     parser.add_argument("--texture-size", type=int, default=1024)
@@ -121,6 +124,11 @@ def main(argv=None):
         parser.error("--target-faces requires --raw-mesh to avoid re-filtering already split surface parts")
     if arguments.output.exists() or arguments.report.exists():
         parser.error("Refusing to overwrite a model or report")
+    if arguments.target_faces:
+        try:
+            validate_hole_fill_backend(arguments.hole_fill_backend)
+        except RuntimeError as error:
+            parser.error(str(error))
     with InferenceRuntime(model_cache_bytes=0, feature_cache_bytes=0):
         return reexport(arguments)
 

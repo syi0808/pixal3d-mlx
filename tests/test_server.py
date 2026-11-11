@@ -67,6 +67,7 @@ def test_upload_persists_normalized_image_and_soft_target(service):
     assert job["status"] == "queued"
     assert job["options"]["target_faces"] == 20000
     assert job["options"]["max_faces"] == 0
+    assert job["options"]["hole_fill_backend"] == "cgal-fan"
     assert all(job["options"][name] == 12 for name in STEP_FIELDS)
     assert (store.directory / "jobs" / job["id"] / "input.png").is_file()
     assert JobStore(store.directory).get(job["id"]) == job

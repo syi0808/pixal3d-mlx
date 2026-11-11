@@ -11,6 +11,25 @@ import time
 import numpy as np
 
 
+DEFAULT_HOLE_FILL_BACKEND = "cgal-fan"
+HOLE_FILL_BACKENDS = ("cgal-fan", "fan", "cgal")
+
+
+def add_hole_fill_argument(parser):
+    parser.add_argument("--hole-fill-backend", choices=HOLE_FILL_BACKENDS, default=DEFAULT_HOLE_FILL_BACKEND,
+                        help="Hole filling: cgal-fan (default), reference fan, or CGAL without fan fallback")
+
+
+def validate_hole_fill_backend(backend):
+    if backend not in HOLE_FILL_BACKENDS:
+        raise ValueError(f"Unknown hole filling backend: {backend}")
+    if backend != "fan":
+        try:
+            cgal_executable()
+        except RuntimeError as error:
+            raise RuntimeError(f"{error} Use --hole-fill-backend fan for the reference implementation.") from error
+
+
 def cgal_executable(executable=None):
     path = Path(executable or os.environ.get("PIXALMLX_CGAL_HOLE_FILLER") or
                 Path(__file__).resolve().parents[1] / "build/cgal-holes/pixal-cgal-holes")

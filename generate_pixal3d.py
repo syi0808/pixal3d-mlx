@@ -21,6 +21,8 @@ import mlx.core as mx
 import numpy as np
 from PIL import Image
 
+from pixalmlx.cgal_holes import add_hole_fill_argument, validate_hole_fill_backend
+
 
 # === Normalization constants from Pixal3D pipeline.json ===
 # (These will be loaded from the actual pipeline.json when available)
@@ -330,6 +332,7 @@ def main(argv=None, runtime=None):
     parser.add_argument("--resume", metavar="DIR",
                         help="Resume from checkpoints — redirects to resume_pixal3d.py")
     parser.add_argument("--no-cleanup", action="store_true")
+    add_hole_fill_argument(parser)
     parser.add_argument("--keep-largest", action="store_true")
     parser.add_argument("--texture-size", type=int, default=1024)
     parser.add_argument("--quantize", type=int, default=0, choices=[0, 4, 8],
@@ -377,6 +380,7 @@ def main(argv=None, runtime=None):
                "--texture-steps", str(args.texture_steps),
                "--target-faces", str(args.target_faces),
                "--max-faces", str(args.max_faces),
+               "--hole-fill-backend", args.hole_fill_backend,
                "--memory-budget-gb", str(args.memory_budget_gb),
                "--model-cache-gb", str(args.model_cache_gb),
                "--feature-cache-mb", str(args.feature_cache_mb),
@@ -406,6 +410,12 @@ def main(argv=None, runtime=None):
             cmd.extend(["--fov", str(args.fov)])
         print(f"Resuming via resume_pixal3d.py --ckpt {args.resume}", flush=True)
         return resume_pixal3d.main(cmd, runtime=runtime)
+
+    if not args.no_cleanup and not args.ss_only:
+        try:
+            validate_hole_fill_backend(args.hole_fill_backend)
+        except RuntimeError as error:
+            parser.error(str(error))
 
     from pixalmlx.runtime import InferenceRuntime
 
@@ -816,6 +826,7 @@ def _generate(args, runtime):
         target_faces=args.target_faces,
         no_cleanup=args.no_cleanup,
         keep_largest=args.keep_largest,
+        hole_fill_backend=args.hole_fill_backend,
     )
     if args.max_faces:
         from pixalmlx.mesh_budget import enforce_face_limit

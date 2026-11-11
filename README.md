@@ -2,7 +2,7 @@
 
 MLX-native [Pixal3D](https://github.com/TencentARC/Pixal3D) (SIGGRAPH 2026) inference for Apple Silicon.
 
-Image → textured 3D mesh with PBR materials. No NVIDIA GPU required. Entire pipeline is pure MLX on Metal — including camera estimation via a native MoGe-2 port ([details](docs/moge-camera-estimation.md)).
+Image → textured 3D mesh with PBR materials. No NVIDIA GPU required. Neural inference runs through MLX on Metal — including camera estimation via a native MoGe-2 port ([details](docs/moge-camera-estimation.md)).
 
 [Pixal3D](https://github.com/TencentARC/Pixal3D) uses pixel-aligned back-projection conditioning to establish direct pixel-to-3D correspondence, producing dramatically better geometry and texture fidelity than attention-based conditioning alone. This port runs the full pipeline natively on Apple Silicon via [MLX](https://github.com/ml-explore/mlx), including a pure-MLX port of [NAF](https://github.com/valeoai/NAF) (Neural Attention Fields) for feature upsampling.
 
@@ -50,6 +50,11 @@ curl -L https://github.com/valeoai/NAF/releases/download/model/naf_release.pth -
 pip install torch safetensors  # only needed for this conversion
 python -c "import torch; from safetensors.torch import save_file; save_file(torch.load('weights/naf_release.pth', map_location='cpu', weights_only=True), 'weights/naf_release.safetensors')"
 
+# Build default CGAL hole repair (or select --hole-fill-backend fan below):
+HOMEBREW_NO_AUTO_UPDATE=1 brew install cgal eigen cmake
+cmake -S native/cgal_holes -B build/cgal-holes -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+cmake --build build/cgal-holes -j 1
+
 # Generate:
 PYTHONPATH=. python generate_pixal3d.py --image your_image.png --output output.glb
 
@@ -88,6 +93,10 @@ conditioning, and an in-process persistent batch engine. See the
 Pixal3D generation/resume enable bounded FFN and modulation/residual compilation
 by default (`--no-compile-transformer` disables it). CPU mesh topology uses
 vectorized edge grouping and sparse corner connectivity without reducing steps.
+Hole filling defaults to CGAL refinement/fairing with fan fallback for rejected
+holes. Build the native helper as above, or use `--hole-fill-backend fan` for
+the original implementation. Missing native support is reported before model
+loading. See [setup, preservation guarantees, and measured tradeoffs](docs/cgal-hole-filling.md).
 
 ```bash
 # Full pipeline (resolution 512 by default):
@@ -187,13 +196,13 @@ pixalmlx/
 
 | | Upstream (CUDA) | This port (MLX) |
 |---|---|---|
-| Runtime | PyTorch + CUDA + natten + nvdiffrast + o_voxel | Pure MLX + numpy (no PyTorch) |
+| Runtime | PyTorch + CUDA + natten + nvdiffrast + o_voxel | MLX + numpy + CGAL/fan mesh repair (no PyTorch) |
 | Camera estimation | MoGe-2 via PyTorch CUDA | MoGe-2 ported to MLX (326M params) |
 | Attention | Flash Attention 3 (CUDA) | MLX Flash Attention (Metal) |
 | NAF | natten CUDA kernels | Windowed gather with dilation (pure MLX) |
 | Sparse conv | flex_gemm CUDA | Gather-scatter sparse conv (MLX) |
 | Mesh extraction | o_voxel CUDA + nvdiffrast | numpy dual-grid + xatlas + MLX GPU rasterizer |
-| Install | Multiple compiled CUDA/C++ packages | `pip install -e .` |
+| Install | Multiple compiled CUDA/C++ packages | `pip install -e .` + CGAL helper, or fan-only repair |
 
 ## MoGe-2 Camera & Geometry Estimation
 

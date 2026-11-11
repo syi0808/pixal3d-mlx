@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import threading
+from typing import Literal
 import warnings
 from urllib.parse import urlsplit
 
@@ -24,6 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .store import JobStore, QueueFull
+from ..cgal_holes import DEFAULT_HOLE_FILL_BACKEND
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +46,7 @@ class JobOptions(BaseModel):
     max_faces: int = Field(default=0, ge=0, le=200000)
     texture_size: int = 1024
     remove_background: bool = True
+    hole_fill_backend: Literal["cgal-fan", "fan", "cgal"] = DEFAULT_HOLE_FILL_BACKEND
 
     @field_validator("resolution", "texture_size")
     @classmethod
@@ -277,7 +280,7 @@ def create_app(settings):
 
     @app.post("/api/jobs", status_code=202)
     def submit(image: UploadFile = File(...), options: str = Form(
-            "{}", description=("JSON object: seed, resolution, target_faces, max_faces, texture_size, remove_background; "
+            "{}", description=("JSON object: seed, resolution, target_faces, max_faces, texture_size, remove_background, hole_fill_backend; "
                                "ss_steps, lr_steps, hr_steps, texture_steps (integers 1-100, default 12 each)"))):
         if not upload_lock.acquire(blocking=False):
             raise HTTPException(429, "Another upload is being decoded; retry shortly")

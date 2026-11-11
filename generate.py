@@ -18,6 +18,8 @@ import time
 import mlx.core as mx
 import numpy as np
 
+from pixalmlx.cgal_holes import add_hole_fill_argument, validate_hole_fill_backend
+
 # SLat normalization from pipeline.json
 SHAPE_SLAT_MEAN = np.array([
     0.781296, 0.018091, -0.495192, -0.558457, 1.06053, 0.093252,
@@ -93,6 +95,7 @@ def _cleanup_and_simplify_mesh(
     target_faces,
     no_cleanup,
     keep_largest=False,
+    hole_fill_backend="fan",
     cleanup_mesh=None,
     simplify=None,
     log=print,
@@ -120,6 +123,7 @@ def _cleanup_and_simplify_mesh(
         if cleanup_mesh is None:
             from pixalmlx.mesh_cleanup import cleanup_mesh as local_cleanup
 
+            validate_hole_fill_backend(hole_fill_backend)
             component_filter_applied = False
 
             def cleanup_mesh(vertices, faces, **kwargs):
@@ -131,7 +135,7 @@ def _cleanup_and_simplify_mesh(
                 if component_filter_applied:
                     kwargs["min_component_area"] = 0
                     kwargs["keep_largest"] = False
-                result = local_cleanup(vertices, faces, **kwargs)
+                result = local_cleanup(vertices, faces, hole_fill_backend=hole_fill_backend, **kwargs)
                 component_filter_applied = True
                 return result
         t0 = time.perf_counter()
@@ -206,6 +210,7 @@ def main():
                         help="Skip background removal (rembg) preprocessing")
     parser.add_argument("--no-cleanup", action="store_true",
                         help="Skip mesh cleanup entirely (no dedup, no repair, no hole fill)")
+    add_hole_fill_argument(parser)
     parser.add_argument("--keep-largest", action="store_true",
                         help="Keep only the largest connected component (removes floors, floaters, extra objects)")
     parser.add_argument("--texture-size", type=int, default=1024,
@@ -213,6 +218,11 @@ def main():
     parser.add_argument("--texture-backend", choices=["cpu", "gpu"], default="gpu",
                         help="Texture bake backend: gpu (MLX Metal, default) or cpu (numpy)")
     args = parser.parse_args()
+    if not args.no_cleanup:
+        try:
+            validate_hole_fill_backend(args.hole_fill_backend)
+        except RuntimeError as error:
+            parser.error(str(error))
 
     mx.random.seed(args.seed)
     t_total = time.perf_counter()
@@ -461,6 +471,7 @@ def main():
         target_faces=args.target_faces,
         no_cleanup=args.no_cleanup,
         keep_largest=args.keep_largest,
+        hole_fill_backend=args.hole_fill_backend,
     )
 
     # === Stage 4: Texture SLat ===

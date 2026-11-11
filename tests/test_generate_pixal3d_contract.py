@@ -64,6 +64,7 @@ def test_ss_entrypoint_preserves_conditioning_and_packed_weights(monkeypatch, bi
 
     monkeypatch.setattr(sys, "argv", ["generate_pixal3d.py", "--image", "unused.png",
                                      "--no-moge", "--resolution", "512",
+                                     "--hole-fill-backend", "fan",
                                      "--quantize", str(bits),
                                      "--compile-transformer" if selective_compile else "--no-compile-transformer"])
     monkeypatch.setattr(dinov3, "DINOv3ViT", lambda: object())
@@ -126,7 +127,7 @@ def test_resume_texture_projection_uses_checkpoint_resolution(monkeypatch, resol
         assert kwargs["steps"] == (12 if texture_steps is None else texture_steps)
         raise ReachedSampler
 
-    argv = ["resume_pixal3d.py", "--image", "unused.png", "--ckpt", "unused"]
+    argv = ["resume_pixal3d.py", "--image", "unused.png", "--ckpt", "unused", "--hole-fill-backend", "fan"]
     if texture_steps is not None:
         argv.extend(["--texture-steps", str(texture_steps)])
     monkeypatch.setattr(sys, "argv", argv)
@@ -137,7 +138,11 @@ def test_resume_texture_projection_uses_checkpoint_resolution(monkeypatch, resol
     monkeypatch.setattr(weight_loader, "load_weights", lambda *a, **k: None)
     monkeypatch.setattr(cleanup, "cleanup_model", lambda *a, **k: None)
     monkeypatch.setattr(mesh_extract, "decoder_output_to_mesh", lambda *a, **k: ([], []))
-    monkeypatch.setattr(generate, "_cleanup_and_simplify_mesh", lambda v, f, **k: (v, f))
+    def postprocess(vertices, faces, **options):
+        assert options["hole_fill_backend"] == "fan"
+        return vertices, faces
+
+    monkeypatch.setattr(generate, "_cleanup_and_simplify_mesh", postprocess)
     monkeypatch.setattr(dinov3, "DINOv3ViT", lambda: object())
     monkeypatch.setattr(dinov3, "load_dinov3_weights", lambda *a, **k: 0)
     monkeypatch.setattr(naf, "NAF", lambda: object())
@@ -208,7 +213,8 @@ def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolu
             raise ReachedSampler
         return mx.zeros_like(noise)
 
-    argv = ["generate_pixal3d.py", "--image", "unused.png", "--no-moge", "--resolution", str(resolution)]
+    argv = ["generate_pixal3d.py", "--image", "unused.png", "--no-moge", "--resolution", str(resolution),
+            "--hole-fill-backend", "fan"]
     for name, value in (step_overrides or {}).items():
         argv.extend(["--" + name.replace("_", "-"), str(value)])
     monkeypatch.setattr(sys, "argv", argv)
@@ -226,7 +232,11 @@ def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolu
     monkeypatch.setattr(generate_pixal3d, "index_proj_by_coords", index)
     monkeypatch.setattr(samplers, "flow_euler_sample", sample)
     monkeypatch.setattr(mesh_extract, "decoder_output_to_mesh", lambda *a, **k: ([], []))
-    monkeypatch.setattr(generate, "_cleanup_and_simplify_mesh", lambda v, f, **k: (v, f))
+    def postprocess(vertices, faces, **options):
+        assert options["hole_fill_backend"] == "fan"
+        return vertices, faces
+
+    monkeypatch.setattr(generate, "_cleanup_and_simplify_mesh", postprocess)
     # Preprocessing is exercised in test_pixal3d_conditioning_inputs.py.
     monkeypatch.setattr(generate_pixal3d, "prepare_conditioning_image", lambda image, output, no_rembg=False: image)
     with pytest.raises(ReachedSampler):

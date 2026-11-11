@@ -9,6 +9,7 @@ import traceback
 import threading
 
 from .store import JobStore
+from ..cgal_holes import DEFAULT_HOLE_FILL_BACKEND
 
 
 def generation_arguments(job, directory):
@@ -16,6 +17,7 @@ def generation_arguments(job, directory):
     arguments = ["--image", str(directory / "input.png"), "--output", str(directory / "model.glb"),
                  "--seed", str(options["seed"]), "--resolution", str(options["resolution"]),
                  "--target-faces", str(options["target_faces"]), "--texture-size", str(options["texture_size"]),
+                 "--hole-fill-backend", options.get("hole_fill_backend", DEFAULT_HOLE_FILL_BACKEND),
                  "--runtime-report", str(directory / "runtime.json")]
     for name in ("ss_steps", "lr_steps", "hr_steps", "texture_steps"):
         arguments.extend(["--" + name.replace("_", "-"), str(options.get(name, 12))])

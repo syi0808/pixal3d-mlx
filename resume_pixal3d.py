@@ -21,6 +21,8 @@ import mlx.nn as nn
 import numpy as np
 from PIL import Image
 
+from pixalmlx.cgal_holes import add_hole_fill_argument, validate_hole_fill_backend
+
 from generate_pixal3d import (
     to_pixal3d_glb_frame,
     get_default_camera_params, extract_proj_features, index_proj_by_coords,
@@ -45,6 +47,7 @@ def main(argv=None, runtime=None):
                         help="Strict final triangle limit after mesh repair (0=disabled)")
     parser.add_argument("--no-rembg", action="store_true")
     parser.add_argument("--no-cleanup", action="store_true")
+    add_hole_fill_argument(parser)
     parser.add_argument("--keep-largest", action="store_true")
     parser.add_argument("--memory-budget-gb", type=float, default=10.0,
                         help="MLX graph-evaluation guideline in decimal GB, not a hard allocation cap")
@@ -71,6 +74,11 @@ def main(argv=None, runtime=None):
     if min(args.feature_cache_mb, args.conditioning_cache_mb, args.ffn_chunk_size, args.naf_tile_rows,
            args.decoder_eval_interval, args.max_faces) < 0:
         parser.error("Cache and chunk sizes must be nonnegative")
+    if not args.no_cleanup:
+        try:
+            validate_hole_fill_backend(args.hole_fill_backend)
+        except RuntimeError as error:
+            parser.error(str(error))
     from pixalmlx.runtime import InferenceRuntime
 
     if runtime is None:
@@ -170,6 +178,7 @@ def _resume(args, runtime):
         target_faces=args.target_faces,
         no_cleanup=args.no_cleanup,
         keep_largest=args.keep_largest,
+        hole_fill_backend=args.hole_fill_backend,
     )
     if args.max_faces:
         from pixalmlx.mesh_budget import enforce_face_limit

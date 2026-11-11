@@ -123,7 +123,7 @@ def test_moge_and_stage_conditioning_share_the_preprocessed_image(monkeypatch, t
 
     monkeypatch.setattr(generate_pixal3d, "extract_proj_features", extract)
     monkeypatch.setattr(sys, "argv", ["generate_pixal3d.py", "--image", str(image_path),
-                                     "--output", str(tmp_path / "out.glb")])
+                                     "--output", str(tmp_path / "out.glb"), "--hole-fill-backend", "fan"])
     with pytest.raises(Reached):
         generate_pixal3d.main()
 
@@ -150,6 +150,7 @@ def test_generation_checkpoints_the_camera(monkeypatch, tmp_path):
     monkeypatch.setattr(generate_pixal3d, "extract_proj_features", extract)
     monkeypatch.setattr(sys, "argv", ["generate_pixal3d.py", "--image", str(image_path),
                                      "--output", str(tmp_path / "out.glb"),
+                                     "--hole-fill-backend", "fan",
                                      "--save-checkpoints", str(ckpt)])
     with pytest.raises(Reached):
         generate_pixal3d.main()
@@ -196,7 +197,7 @@ def test_resume_uses_checkpointed_camera(monkeypatch, tmp_path):
     monkeypatch.setattr(pixal_flow, "Pixal3DSLatFlowModel", lambda **k: object())
     monkeypatch.setattr(resume_pixal3d, "extract_proj_features", extract)
     monkeypatch.setattr(sys, "argv", ["resume_pixal3d.py", "--image", str(image_path),
-                                     "--ckpt", str(ckpt)])
+                                     "--ckpt", str(ckpt), "--hole-fill-backend", "fan"])
     with pytest.raises(Reached):
         resume_pixal3d.main()
 

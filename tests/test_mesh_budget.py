@@ -102,8 +102,9 @@ def test_checkpoint_reexport_writes_valid_glb_without_inference(tmp_path, checkp
 
 
 def test_soft_target_reexport_does_not_apply_a_strict_cap(tmp_path, checkpoint_export, monkeypatch):
-    def cleanup(vertices, faces, *, target_faces, no_cleanup):
+    def cleanup(vertices, faces, *, target_faces, no_cleanup, hole_fill_backend):
         assert target_faces == 10 and not no_cleanup
+        assert hole_fill_backend == "fan"
         return vertices, faces
 
     def reject_cap(*args, **kwargs):
@@ -114,6 +115,7 @@ def test_soft_target_reexport_does_not_apply_a_strict_cap(tmp_path, checkpoint_e
     report = checkpoint_export.main([
         "--ckpt", str(tmp_path), "--raw-mesh", str(tmp_path / "raw.npz"),
         "--target-faces", "10", "--texture-size", "8",
+        "--hole-fill-backend", "fan",
         "--output", str(tmp_path / "soft.glb"), "--report", str(tmp_path / "soft.json")])
     assert report["max_faces"] == 0 and report["target_faces"] == 10
     assert report["exported_faces"] == 20 and report["status"] == "complete"

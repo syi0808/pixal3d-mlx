@@ -49,6 +49,7 @@ def test_generate_pixal3d_falls_back_when_moge_estimator_raises(monkeypatch, tmp
         "generate_pixal3d.py",
         "--image", str(image_path),
         "--output", str(output_path),
+        "--hole-fill-backend", "fan",
     ])
 
     real_import = __import__

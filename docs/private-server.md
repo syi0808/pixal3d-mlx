@@ -137,9 +137,18 @@ Supported `options` (unknown fields are rejected):
   "target_faces": 20000,
   "max_faces": 0,
   "texture_size": 1024,
-  "remove_background": true
+  "remove_background": true,
+  "hole_fill_backend": "cgal-fan"
 }
 ```
+
+`hole_fill_backend` defaults to `"cgal-fan"`: CGAL refines/fairs suitable
+holes, then the reference fan implementation fills rejected holes. Build the
+[native helper](cgal-hole-filling.md#build-and-use) before default generation,
+or explicitly select `"fan"` to avoid the native dependency. `"cgal"` selects
+CGAL without fan fallback. The backend is persisted with each job and included
+in runtime metadata; older queued jobs without the field use `"cgal-fan"`.
+Restart an existing persistent server/worker after updating the code.
 
 Each step field is optional and independently defaults to **12**. Values must
 be integers from **1 through 100**; strings, booleans, fractions, nulls and

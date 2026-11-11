@@ -1,14 +1,16 @@
 # CGAL hole filling comparison
 
-An optional CGAL backend now refines and fairs hole interiors while retaining
-the filling input's existing vertex and triangle arrays byte-for-byte. The
-original fan implementation and all generation/server defaults remain
-unchanged.
+CGAL refinement/fairing followed by fan filling of rejected holes is now the
+default for generation, checkpoint resume, soft-target re-export, and API jobs
+(`cgal-fan`). Hole filling retains its input's existing vertex and triangle
+arrays byte-for-byte. The original fan implementation remains available with
+`--hole-fill-backend fan`.
 
 The controlled curved-surface examples improve substantially, but the real
-turnip does **not** justify switching defaults: CGAL alone leaves rejected
-holes open, and the explicit CGAL-plus-fan mode fills the same number of holes
+turnip comparison does **not** establish a universal improvement: CGAL alone
+leaves rejected holes open, and CGAL-plus-fan fills the same number of holes
 as the reference but takes longer without a consistent seam-angle improvement.
+The default is an explicit processing-policy choice, not a new performance claim.
 
 ## Implementation and preservation
 
@@ -44,7 +46,8 @@ boundary components are skipped rather than guessed. A 300 s subprocess
 timeout bounds a single native call. Failed native execution is an error,
 not a silent fallback.
 
-`fallback="skip"` is the default. `fallback="fan"` explicitly runs the
+The standalone bridge retains `fallback="skip"` for compatibility. Production
+entrypoints select `cgal-fan`, which explicitly passes `fallback="fan"` and runs the
 unchanged reference filler over the remaining boundaries after CGAL has
 finished. Diagnostics distinguish CGAL-filled and fan-filled holes. This
 fallback preserves reference behavior, including its possible degenerate
@@ -64,9 +67,13 @@ does not promise that a whole generation pipeline never modifies old geometry.
 
 ## Build and use
 
-The Python package does not require CGAL. Build from a checkout when opting
-into this backend; installed packages can locate a separately built helper
-using `PIXALMLX_CGAL_HOLE_FILLER`.
+The Python package does not build or download CGAL. Default generation now
+requires the helper below; alternatively select `--hole-fill-backend fan`.
+Installed packages can locate a separately built helper using
+`PIXALMLX_CGAL_HOLE_FILLER`. Native availability is checked before expensive
+generation/resume work. `--no-cleanup`, `--ss-only`, and strict-cap-only
+re-exports do not require an unused helper. A missing helper or native process
+failure is an error, rather than an implicit whole-job fallback.
 
 ```bash
 HOMEBREW_NO_AUTO_UPDATE=1 brew install cgal eigen
@@ -89,15 +96,38 @@ vertices, faces = fill_small_holes_cgal(
     max_hole_perimeter=0.03,
     density_control_factor=2.0,
     fairing_continuity=1,
-    fallback="skip",
+    fallback="fan",
     diagnostics=diagnostics,
 )
 ```
 
-For the shared cleanup API, `cleanup_mesh(..., hole_fill_backend="cgal")`
-opts in with the default CGAL options. `hole_fill_backend="fan"` remains the
-default. Generation CLI and private-server options have not been changed to
-adopt this experimental backend.
+All generation/resume entrypoints and soft-target re-export accept
+`--hole-fill-backend cgal-fan|fan|cgal`, defaulting to `cgal-fan`. The server's
+`hole_fill_backend` JSON option has the same choices and default, is recorded
+in job options, and is forwarded explicitly to the worker. Older queued jobs
+without the field also use `cgal-fan`. Runtime/re-export reports record the choice.
+
+For direct library use, `cleanup_mesh(..., hole_fill_backend="cgal-fan")`
+selects the combined mode. `cgal` leaves rejected holes open, and `fan` uses
+only the unchanged reference implementation. The low-level `cleanup_mesh`
+and `_cleanup_and_simplify_mesh` APIs retain their `fan` defaults to preserve
+reference experiments and custom callers; production entrypoints pass the
+selected backend explicitly through every cleanup pass.
+
+The production-default integration was exercised without neural resampling
+using the archived turnip raw geometry and mesh/texture checkpoints:
+`outputs/runtime/cgal-hybrid-integration/export.json`. The command omitted
+`--hole-fill-backend`, recorded `cgal-fan`, ran combined filling through the
+cleanup/simplification path, and exported a validated **20,044-triangle** GLB
+with 1024 PBR maps from a soft 20,000-face target. Existing assets were not
+overwritten. This checks checkpoint re-export, not a new image-to-3D run or
+multi-asset quality equivalence.
+
+Default-policy validation reports **566 passed and the same three existing
+README failures**, logged in `cgal-hybrid-integration/full-tests.log`. A second
+targeted run with the helper intentionally unavailable reports **104 passed /
+13 native cases skipped**, checking that explicit fan mode and non-filling
+routes remain usable without CGAL.
 
 CGAL's relevant headers identify their license as
 `GPL-3.0-or-later OR LicenseRef-Commercial`; CGAL is not an MIT dependency.
@@ -232,13 +262,14 @@ collapse, explicit fallback, original winding preservation, and integer byte
 order. Without a built helper, native integration cases are skipped while
 bridge/dispatch validation still runs.
 
-Validation on this checkout: **27 CGAL-focused tests passed**. The full suite
+Original comparison validation: **27 CGAL-focused tests passed**. The full suite
 reports **540 passed and the same three pre-existing README onboarding
 failures** (`test_readme_uses_current_huggingface_cli`,
 `test_readme_tests_section_avoids_stale_exact_count`, and
 `test_readme_quantization_section_states_measured_tradeoff`). The full output
 is retained as `comparison-final/full-tests.log`.
 
-Keep fan as the production default. CGAL is an experimental quality option
-for suitable curved holes, not a demonstrated universal improvement or a
-whole-pipeline speed optimization.
+CGAL-plus-fan is the configured production default. Keep the fan override
+available for reference comparison, environments without a native helper, or
+assets where fairing is undesirable. This is not a demonstrated universal
+quality improvement or a whole-pipeline speed optimization.
