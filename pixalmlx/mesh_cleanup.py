@@ -25,6 +25,7 @@ def cleanup_mesh(
     min_component_area: float = 1e-5,
     preserve_surface_parts: bool = True,
     do_fix_normals: bool = True,
+    hole_fill_backend: str = "fan",
     verbose: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Clean up a raw decoder mesh.
@@ -55,12 +56,16 @@ def cleanup_mesh(
         do_fix_normals: Run winding unification. The reference only does this once
             at the end, so callers can skip it for intermediate cleanup passes
             before simplification.
+        hole_fill_backend: "fan" retains the reference behavior; "cgal" opts into
+            native refinement/fairing while keeping existing vertices fixed.
         verbose: Print progress.
 
     Returns:
         cleaned_vertices: [V', 3]
         cleaned_faces: [F', 3]
     """
+    if hole_fill_backend not in ("fan", "cgal"):
+        raise ValueError("hole_fill_backend must be 'fan' or 'cgal'")
     original_faces = len(faces)
     original_verts = len(vertices)
 
@@ -86,7 +91,12 @@ def cleanup_mesh(
         vertices, faces = filter_components(vertices, faces)
 
     # Step 4: Fill small holes on the remaining mesh
-    vertices, faces = fill_small_holes(
+    fill_holes = fill_small_holes
+    if hole_fill_backend == "cgal":
+        from .cgal_holes import fill_small_holes_cgal
+
+        fill_holes = fill_small_holes_cgal
+    vertices, faces = fill_holes(
         vertices,
         faces,
         max_hole_perimeter=max_hole_perimeter,
