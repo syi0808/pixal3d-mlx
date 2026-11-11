@@ -17,6 +17,8 @@ def generation_arguments(job, directory):
                  "--seed", str(options["seed"]), "--resolution", str(options["resolution"]),
                  "--target-faces", str(options["target_faces"]), "--texture-size", str(options["texture_size"]),
                  "--runtime-report", str(directory / "runtime.json")]
+    for name in ("ss_steps", "lr_steps", "hr_steps", "texture_steps"):
+        arguments.extend(["--" + name.replace("_", "-"), str(options.get(name, 12))])
     if options["max_faces"]:
         arguments.extend(["--max-faces", str(options["max_faces"])])
     if not options["remove_background"]:

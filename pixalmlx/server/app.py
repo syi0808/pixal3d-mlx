@@ -35,6 +35,10 @@ MAX_REQUEST = MAX_UPLOAD + 64 * 1024
 class JobOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     seed: int = Field(default=42, ge=0, le=2 ** 32 - 4)
+    ss_steps: int = Field(default=12, ge=1, le=100)
+    lr_steps: int = Field(default=12, ge=1, le=100)
+    hr_steps: int = Field(default=12, ge=1, le=100)
+    texture_steps: int = Field(default=12, ge=1, le=100)
     resolution: int = 512
     target_faces: int = Field(default=20000, ge=500, le=200000)
     max_faces: int = Field(default=0, ge=0, le=200000)
@@ -273,7 +277,8 @@ def create_app(settings):
 
     @app.post("/api/jobs", status_code=202)
     def submit(image: UploadFile = File(...), options: str = Form(
-            "{}", description="JSON object: seed, resolution, target_faces, max_faces, texture_size, remove_background")):
+            "{}", description=("JSON object: seed, resolution, target_faces, max_faces, texture_size, remove_background; "
+                               "ss_steps, lr_steps, hr_steps, texture_steps (integers 1-100, default 12 each)"))):
         if not upload_lock.acquire(blocking=False):
             raise HTTPException(429, "Another upload is being decoded; retry shortly")
         try:

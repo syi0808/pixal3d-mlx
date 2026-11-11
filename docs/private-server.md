@@ -42,8 +42,9 @@ Options:
 `--allow-1024` explicitly enables 1024 geometry. It is disabled by default
 because the 18 GiB machine's prior 1024 run completed with significant memory
 pressure and additional swap. It is not a safe-memory guarantee. The service
-keeps the existing 512/FP32/12-step generation defaults and does not enable
-experimental compilation, reduced steps, or quantization.
+keeps the existing 512/FP32 generation defaults and 12 sampling steps per
+stage. Stage-specific step counts change only when explicitly requested;
+there is no automatic step reduction or quantization.
 
 Keep the Mac awake and powered. For attended operation, `caffeinate -i` can
 wrap the start command to inhibit idle sleep; it does not make a powered-off
@@ -128,6 +129,10 @@ Supported `options` (unknown fields are rejected):
 ```json
 {
   "seed": 42,
+  "ss_steps": 12,
+  "lr_steps": 12,
+  "hr_steps": 12,
+  "texture_steps": 12,
   "resolution": 512,
   "target_faces": 20000,
   "max_faces": 0,
@@ -135,6 +140,27 @@ Supported `options` (unknown fields are rejected):
   "remove_background": true
 }
 ```
+
+Each step field is optional and independently defaults to **12**. Values must
+be integers from **1 through 100**; strings, booleans, fractions, nulls and
+out-of-range values return 422 before a job is queued. These fields control
+sparse structure, LR shape, HR shape and texture sampling respectively.
+Partial overrides preserve the other stages' defaults. For example:
+
+```bash
+curl --fail-with-body "$PIXAL3D_URL/api/jobs" \
+  -F 'image=@turnip.png' \
+  -F 'options={"ss_steps":12,"lr_steps":8,"hr_steps":12,"texture_steps":8}'
+```
+
+Step choices are saved in the job options and passed unchanged to inference.
+Jobs queued before these fields existed continue to use 12 for missing values.
+Equivalent CLI flags are `--ss-steps`, `--lr-steps`, `--hr-steps`, and
+`--texture-steps`. Checkpoint resume only reruns texture sampling, so only
+`--texture-steps` applies there. Changing step counts changes the sampling
+schedule and may change geometry or texture; fewer steps are not an
+output-equivalent optimization. The dashboard still submits the defaults
+unless a client explicitly supplies overrides through the API.
 
 `target_faces` is a **soft** target. `max_faces: 0` disables the strict cap and
 omits the corresponding generation CLI option. To require at most 5,000
@@ -205,6 +231,9 @@ including chunked bodies, input validation, queue cancellation/recovery,
 checkout locking, normal-corrected publication, failed-export isolation,
 bounded logs, exact download hashes, and uncapped/atomic normal finalization.
 They use small real GLB fixtures and do not load the full neural models.
+Sampling-step tests cover per-stage defaults and partial overrides, strict
+integer/range validation, durable job options, legacy queued jobs, independent
+SS/LR/HR/texture sampler forwarding, and texture-step forwarding on resume.
 
 ### Initial end-to-end verification on this Mac
 

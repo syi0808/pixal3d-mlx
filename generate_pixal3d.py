@@ -311,6 +311,9 @@ def main(argv=None, runtime=None):
     parser.add_argument("--image", required=True, help="Input image path")
     parser.add_argument("--output", default="/tmp/pixal3d-mlx-mesh.glb")
     parser.add_argument("--seed", type=int, default=42)
+    for stage in ("ss", "lr", "hr", "texture"):
+        parser.add_argument(f"--{stage}-steps", type=int, default=12,
+                            help=f"{stage.upper()} sampling steps (1-100, default: 12)")
     parser.add_argument("--fov", type=float, default=-1.0,
                         help="Manual FOV in radians (default: MoGe auto-estimate)")
     parser.add_argument("--no-moge", action="store_true",
@@ -356,6 +359,8 @@ def main(argv=None, runtime=None):
     parser.add_argument("--ss-precision", choices=["float32", "mixed"], default="float32",
                         help="Mixed FP16 compute is experimental; FP32 remains the stable default")
     args = parser.parse_args(argv)
+    if any(not 1 <= steps <= 100 for steps in (args.ss_steps, args.lr_steps, args.hr_steps, args.texture_steps)):
+        parser.error("Sampling steps must be integers from 1 to 100")
     if min(args.feature_cache_mb, args.conditioning_cache_mb, args.naf_tile_rows, args.ffn_chunk_size,
            args.decoder_eval_interval, args.max_faces) < 0:
         parser.error("Cache and chunk sizes must be nonnegative")
@@ -369,6 +374,7 @@ def main(argv=None, runtime=None):
                "--output", args.output,
                "--seed", str(args.seed),
                "--texture-size", str(args.texture_size),
+               "--texture-steps", str(args.texture_steps),
                "--target-faces", str(args.target_faces),
                "--max-faces", str(args.max_faces),
                "--memory-budget-gb", str(args.memory_budget_gb),
@@ -521,7 +527,7 @@ def _generate(args, runtime):
         ss_flow.compute_dtype = mx.float16
 
     # SS sampler params from Pixal3D pipeline.json
-    SS_SAMPLER = dict(steps=12, guidance_strength=7.5, guidance_rescale=0.7,
+    SS_SAMPLER = dict(steps=args.ss_steps, guidance_strength=7.5, guidance_rescale=0.7,
                       guidance_interval=(0.6, 1.0), rescale_t=5.0)
 
     noise = mx.random.normal((1, 8, 16, 16, 16), key=mx.random.key(args.seed)).astype(mx.float32)
@@ -594,7 +600,7 @@ def _generate(args, runtime):
     from pixalmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
     from pixalmlx.models.shape_slat_decoder import SLatDecoder
 
-    SHAPE_SAMPLER = dict(steps=12, guidance_strength=7.5, guidance_rescale=0.5,
+    SHAPE_SAMPLER = dict(guidance_strength=7.5, guidance_rescale=0.5,
                          guidance_interval=(0.6, 1.0), rescale_t=3.0)
 
     # Extract proj features for shape LR stage (grid=32, image=512, NAF→proj_in=2048)
@@ -640,7 +646,7 @@ def _generate(args, runtime):
     t0 = time.perf_counter()
     lr_slat = flow_euler_sample(
         lr_slat_flow, lr_noise, shape_lr_cond_sparse, shape_lr_neg_cond_sparse,
-        verbose=False, coords=mx.array(lr_coords),
+        verbose=False, steps=args.lr_steps, coords=mx.array(lr_coords),
         conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
         ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
         selective_compile=args.compile_transformer,
@@ -737,7 +743,7 @@ def _generate(args, runtime):
     t0 = time.perf_counter()
     hr_slat = flow_euler_sample(
         hr_slat_flow, hr_noise, shape_hr_cond_sparse, shape_hr_neg_cond_sparse,
-        verbose=False, coords=mx.array(hr_coords_3d),
+        verbose=False, steps=args.hr_steps, coords=mx.array(hr_coords_3d),
         conditioning_cache_bytes=int(args.conditioning_cache_mb * 1024 ** 2),
         ffn_chunk_size=args.ffn_chunk_size, compile_step=args.compile_step,
         selective_compile=args.compile_transformer,
@@ -829,7 +835,7 @@ def _generate(args, runtime):
     print("\n=== Stage 4: Texture SLat (proj, 1024) ===", flush=True)
     runtime.advance("texture_sampling")
 
-    TEX_SAMPLER = dict(steps=12, guidance_strength=1.0, guidance_rescale=0.0,
+    TEX_SAMPLER = dict(steps=args.texture_steps, guidance_strength=1.0, guidance_rescale=0.0,
                        guidance_interval=(0.6, 0.9), rescale_t=3.0)
 
     # Extract proj features for texture stage

@@ -92,7 +92,8 @@ def test_main_forwards_selective_compile_setting_when_resuming(monkeypatch, sele
 
 
 @pytest.mark.parametrize("resolution", [512, 1024])
-def test_resume_texture_projection_uses_checkpoint_resolution(monkeypatch, resolution):
+@pytest.mark.parametrize("texture_steps", [None, 7])
+def test_resume_texture_projection_uses_checkpoint_resolution(monkeypatch, resolution, texture_steps):
     import generate
     import resume_pixal3d
     import pixalmlx.checkpoint as checkpoint
@@ -122,9 +123,13 @@ def test_resume_texture_projection_uses_checkpoint_resolution(monkeypatch, resol
         return {}, {}
 
     def sample(*args, **kwargs):
+        assert kwargs["steps"] == (12 if texture_steps is None else texture_steps)
         raise ReachedSampler
 
-    monkeypatch.setattr(sys, "argv", ["resume_pixal3d.py", "--image", "unused.png", "--ckpt", "unused"])
+    argv = ["resume_pixal3d.py", "--image", "unused.png", "--ckpt", "unused"]
+    if texture_steps is not None:
+        argv.extend(["--texture-steps", str(texture_steps)])
+    monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(checkpoint, "load_checkpoint", lambda *a: {
         "hr_slat": np.zeros((1, 32), dtype=np.float32),
         "quant_coords": np.zeros((1, 4), dtype=np.int32), "hr_resolution": resolution})
@@ -146,7 +151,8 @@ def test_resume_texture_projection_uses_checkpoint_resolution(monkeypatch, resol
 
 
 @pytest.mark.parametrize("resolution", [512, 1024])
-def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolution):
+@pytest.mark.parametrize("step_overrides", [None, {"ss_steps": 3, "lr_steps": 5, "hr_steps": 7, "texture_steps": 9}])
+def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolution, step_overrides):
     """Replay main through texture sampling with tiny stage stand-ins.
 
     Upstream Pixal3DImageTo3DPipeline.run derives both projection overrides
@@ -180,6 +186,7 @@ def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolu
 
     extracted_grids = []
     indexed_grids = []
+    sampled_steps = []
 
     def extract(*args, grid_resolution, **kwargs):
         extracted_grids.append(grid_resolution)
@@ -191,15 +198,20 @@ def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolu
         return {}, {}
 
     def sample(model, noise, *args, **kwargs):
+        sampled_steps.append(kwargs["steps"])
         if "concat_cond" in kwargs:
             # Both extraction and sparse indexing must use the matching grid.
             assert extracted_grids == [16, 32, resolution // 16]
             assert indexed_grids == [32, resolution // 16, resolution // 16]
+            assert sampled_steps == [(step_overrides or {}).get(name, 12)
+                                     for name in ("ss_steps", "lr_steps", "hr_steps", "texture_steps")]
             raise ReachedSampler
         return mx.zeros_like(noise)
 
-    monkeypatch.setattr(sys, "argv", ["generate_pixal3d.py", "--image", "unused.png",
-                                     "--no-moge", "--resolution", str(resolution)])
+    argv = ["generate_pixal3d.py", "--image", "unused.png", "--no-moge", "--resolution", str(resolution)]
+    for name, value in (step_overrides or {}).items():
+        argv.extend(["--" + name.replace("_", "-"), str(value)])
+    monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(dinov3, "DINOv3ViT", lambda: object())
     monkeypatch.setattr(dinov3, "load_dinov3_weights", lambda *a, **k: 0)
     monkeypatch.setattr(naf, "NAF", lambda: object())
@@ -219,3 +231,33 @@ def test_hr_and_texture_projection_follow_actual_latent_grid(monkeypatch, resolu
     monkeypatch.setattr(generate_pixal3d, "prepare_conditioning_image", lambda image, output, no_rembg=False: image)
     with pytest.raises(ReachedSampler):
         generate_pixal3d.main()
+
+
+@pytest.mark.parametrize("texture_steps", [None, 9])
+def test_main_forwards_texture_steps_when_resuming(monkeypatch, texture_steps):
+    import resume_pixal3d
+
+    captured = []
+    monkeypatch.setattr(resume_pixal3d, "main", lambda arguments, runtime=None: captured.extend(arguments))
+    arguments = ["--image", "unused.png", "--resume", "unused"]
+    if texture_steps is not None:
+        arguments.extend(["--texture-steps", str(texture_steps)])
+    generate_pixal3d.main(arguments)
+    assert captured[captured.index("--texture-steps") + 1] == str(12 if texture_steps is None else texture_steps)
+
+
+@pytest.mark.parametrize("option", ["--ss-steps", "--lr-steps", "--hr-steps", "--texture-steps"])
+@pytest.mark.parametrize("value", ["0", "-1", "101", "1.5"])
+def test_generation_rejects_invalid_sampling_steps_before_loading_models(option, value):
+    with pytest.raises(SystemExit) as error:
+        generate_pixal3d.main(["--image", "unused.png", option, value])
+    assert error.value.code == 2
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "101", "1.5"])
+def test_resume_rejects_invalid_texture_steps_before_loading_models(value):
+    import resume_pixal3d
+
+    with pytest.raises(SystemExit) as error:
+        resume_pixal3d.main(["--image", "unused.png", "--ckpt", "unused", "--texture-steps", value])
+    assert error.value.code == 2

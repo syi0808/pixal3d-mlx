@@ -19,6 +19,9 @@ from pixalmlx.server.store import JobStore, QueueFull
 from pixalmlx.server.worker import execute_job, generation_arguments
 
 
+STEP_FIELDS = ("ss_steps", "lr_steps", "hr_steps", "texture_steps")
+
+
 def image_bytes():
     output = io.BytesIO()
     Image.new("RGB", (16, 16), "magenta").save(output, format="PNG")
@@ -50,6 +53,7 @@ def test_api_and_dashboard_work_without_tokens_or_login(service):
     schema = client.get("/api/openapi.json")
     assert "securitySchemes" not in schema.json()["components"]
     assert "security" not in schema.json()
+    assert all(name in schema.text for name in STEP_FIELDS)
     script = client.get("/static/studio.js").text
     assert "Authorization" not in script
     assert "sessionStorage" not in script
@@ -63,12 +67,53 @@ def test_upload_persists_normalized_image_and_soft_target(service):
     assert job["status"] == "queued"
     assert job["options"]["target_faces"] == 20000
     assert job["options"]["max_faces"] == 0
+    assert all(job["options"][name] == 12 for name in STEP_FIELDS)
     assert (store.directory / "jobs" / job["id"] / "input.png").is_file()
     assert JobStore(store.directory).get(job["id"]) == job
     assert client.get(f"/api/jobs/{job['id']}/input").headers["content-type"] == "image/png"
     assert client.get(f"/api/jobs/{job['id']}/model").status_code == 409
     assert client.get(f"/api/jobs/{job['id']}/report").status_code == 409
     assert client.get("/api/jobs").json()["counts"] == {"queued": 1}
+
+
+@pytest.mark.parametrize("overrides", [
+    {},
+    {"ss_steps": 5, "lr_steps": 7, "hr_steps": 9, "texture_steps": 11},
+    {"hr_steps": 20},
+    dict.fromkeys(STEP_FIELDS, 1),
+    dict.fromkeys(STEP_FIELDS, 100),
+])
+def test_sampling_steps_are_persisted_independently_and_forwarded_to_worker(service, overrides):
+    client, store = service
+    response = submit(client, overrides)
+    assert response.status_code == 202
+    job = response.json()
+    expected = {name: overrides.get(name, 12) for name in STEP_FIELDS}
+    assert {name: job["options"][name] for name in STEP_FIELDS} == expected
+    assert JobStore(store.directory).get(job["id"])["options"] == job["options"]
+    claimed = store.claim()
+    arguments = generation_arguments(claimed, store.directory / "jobs" / job["id"])
+    for name, value in expected.items():
+        option = "--" + name.replace("_", "-")
+        assert arguments[arguments.index(option) + 1] == str(value)
+
+
+@pytest.mark.parametrize("field", STEP_FIELDS)
+@pytest.mark.parametrize("value", [-1, 0, 101, 2.5, 12.0, "12", True, None])
+def test_sampling_steps_reject_invalid_ranges_and_noninteger_json_types(service, field, value):
+    client, store = service
+    assert submit(client, {field: value}).status_code == 422
+    assert store.counts() == {}
+
+
+def test_legacy_queued_jobs_default_missing_step_fields_to_twelve(tmp_path):
+    options = JobOptions().model_dump()
+    for name in STEP_FIELDS:
+        del options[name]
+    arguments = generation_arguments({"options": options}, tmp_path)
+    for name in STEP_FIELDS:
+        option = "--" + name.replace("_", "-")
+        assert arguments[arguments.index(option) + 1] == "12"
 
 
 def test_palette_transparency_is_preserved_and_metadata_removed(service):

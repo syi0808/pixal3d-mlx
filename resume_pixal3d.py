@@ -37,6 +37,8 @@ def main(argv=None, runtime=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fov", type=float, default=-1.0)
     parser.add_argument("--texture-size", type=int, default=4096)
+    parser.add_argument("--texture-steps", type=int, default=12,
+                        help="Texture sampling steps (1-100, default: 12)")
     parser.add_argument("--target-faces", type=int, default=500_000,
                         help="Soft triangle target before final mesh repairs; use --max-faces for a strict cap")
     parser.add_argument("--max-faces", type=int, default=0,
@@ -64,6 +66,8 @@ def main(argv=None, runtime=None):
                         help="Compile bounded FFN and modulation/residual operations (default: enabled)")
     parser.add_argument("--runtime-report")
     args = parser.parse_args(argv)
+    if not 1 <= args.texture_steps <= 100:
+        parser.error("Texture sampling steps must be integers from 1 to 100")
     if min(args.feature_cache_mb, args.conditioning_cache_mb, args.ffn_chunk_size, args.naf_tile_rows,
            args.decoder_eval_interval, args.max_faces) < 0:
         parser.error("Cache and chunk sizes must be nonnegative")
@@ -203,7 +207,7 @@ def _resume(args, runtime):
     print("\n=== Stage 4: Texture SLat ===", flush=True)
     from pixalmlx.models.pixal3d_flow import Pixal3DSLatFlowModel
 
-    TEX_SAMPLER = dict(steps=12, guidance_strength=1.0, guidance_rescale=0.0,
+    TEX_SAMPLER = dict(steps=args.texture_steps, guidance_strength=1.0, guidance_rescale=0.0,
                        guidance_interval=(0.6, 0.9), rescale_t=3.0)
 
     tex_image_size = 1024
