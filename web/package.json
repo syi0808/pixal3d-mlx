@@ -1,0 +1,7 @@
+{
+  "name": "pixal3d-dashboard-assets",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {"build": "node vendor.mjs"},
+  "dependencies": {"@google/model-viewer": "4.4.0"}
+}

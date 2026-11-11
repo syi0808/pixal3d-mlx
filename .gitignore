@@ -9,3 +9,6 @@ outputs/ckpt_*/
 outputs/*/
 weights/
 outputs/runtime/
+outputs/.pixal3d-server.lock
+web/node_modules/
+trellmlx/server/static/vendor/

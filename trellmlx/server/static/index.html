@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Pixal3D · Asset Studio</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/studio.css">
+  <script type="module" src="/static/studio.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Pixal3D 홈"><span class="brand-mark">P<span>3</span></span><strong>Pixal3D <small>ASSET STUDIO</small></strong></a>
+    <div class="top-right"><span class="connection"><i id="connection-dot"></i><span id="connection-text">연결 확인 중</span></span><button id="logout" class="quiet" type="button">잠금</button></div>
+  </header>
+  <main class="workspace">
+    <aside class="sidebar">
+      <div class="section-heading"><span class="eyebrow">01 / CREATE</span><span class="pill">MLX · LOCAL</span></div>
+      <h1>이미지에서,<br>하나의 에셋으로.</h1>
+      <p class="intro">한 장의 이미지를 텍스처와 PBR 머티리얼이 포함된 3D 모델로 만드세요.</p>
+      <form id="generate-form">
+        <label class="upload" id="dropzone" for="image">
+          <input id="image" name="image" type="file" accept="image/png,image/jpeg,image/webp" required>
+          <img id="upload-preview" alt="생성할 입력 이미지" hidden>
+          <span id="upload-prompt"><b class="upload-icon">＋</b><strong>이미지 선택 또는 드래그</strong><small>PNG, JPEG, WebP · 최대 16 MiB / 16 MP</small></span>
+          <span id="upload-name" hidden></span>
+        </label>
+        <div class="form-row"><label>지오메트리 해상도<select id="resolution"><option value="512">512 · 권장</option><option value="1024" id="resolution-1024" disabled>1024 · 서버 허용 필요</option></select></label><label>텍스처 해상도<select id="texture-size"><option value="1024">1024 × 1024</option><option value="512">512 × 512</option></select></label></div>
+        <div class="form-row"><label>폴리곤 목표<input id="target-faces" type="number" value="20000" min="500" max="200000" step="1" required></label><label>Seed<span class="input-with-button"><input id="seed" type="number" value="42" min="0" max="4294967292" step="1" required><button id="random-seed" type="button" class="quiet" aria-label="랜덤 seed">↻</button></span></label></div>
+        <label class="check"><input id="remove-background" type="checkbox" checked>배경 자동 제거</label>
+        <label class="check"><input id="strict-cap" type="checkbox">엄격한 폴리곤 상한 사용</label>
+        <label id="cap-field" hidden>최대 삼각형 수<input id="max-faces" type="number" value="20000" min="500" max="200000" step="1"></label>
+        <p class="hint">기본은 소프트 목표입니다. 최종 메시 보정 후 목표보다 조금 늘어날 수 있습니다.</p>
+        <div class="included"><span>✓ 노멀 교정</span><span>✓ PBR 텍스처</span><span>✓ GLB 출력</span></div>
+        <button id="submit-job" class="primary" type="submit">생성 대기열에 추가 <span>↗</span></button>
+        <p id="form-message" class="message" role="status" aria-live="polite"></p>
+      </form>
+      <div class="worker-note"><span class="status-dot"></span><div><strong>한 번에 하나, 안정적으로.</strong><small>GPU 작업 1개 · 대기열 영속 저장<br>창을 닫아도 서버에서 생성이 계속됩니다.</small></div></div>
+    </aside>
+    <section class="main-panel" aria-label="에셋 작업 공간">
+      <div class="workspace-heading"><div><span class="eyebrow">02 / WORKSPACE</span><h2 id="asset-title">새로운 에셋을 기다리는 중</h2></div><span id="asset-status" class="badge">READY</span></div>
+      <section class="viewer-panel" aria-label="PBR 3D 뷰어">
+        <div class="viewer-label"><span class="status-dot"></span> INTERACTIVE PBR VIEWPORT</div>
+        <model-viewer id="viewer" hidden alt="생성된 텍스처 PBR 3D 모델" camera-controls touch-action="pan-y" environment-image="neutral" exposure="1" shadow-intensity="0.8" camera-orbit="180deg 80deg 105%" auto-rotate></model-viewer>
+        <div id="viewer-empty" class="viewer-empty"><div class="cube" aria-hidden="true">◇</div><h3>다음 아이디어를 입체로.</h3><p>이미지를 업로드하거나 완료된 작업을 선택하세요.<br>노멀 교정된 실제 GLB가 여기에 표시됩니다.</p></div>
+        <div id="viewer-message" class="viewer-message" role="status"></div>
+        <div class="viewer-toolbar"><span>드래그로 회전 · 스크롤로 확대</span><div><button id="rotate" class="quiet" type="button" aria-pressed="true">자동 회전</button><button id="reset-camera" class="quiet" type="button">시점 초기화</button></div></div>
+      </section>
+      <div class="asset-details"><div class="metrics"><div><span>TRIANGLES</span><strong id="metric-faces">—</strong></div><div><span>ELAPSED</span><strong id="metric-time">—</strong></div><div><span>FILE SIZE</span><strong id="metric-size">—</strong></div><div><span>NORMALS</span><strong id="metric-normals">—</strong></div></div><div class="download-actions"><button id="download-report" class="secondary" type="button" disabled>실행 보고서</button><button id="download-model" class="primary" type="button" disabled>GLB 다운로드 ↓</button></div></div>
+      <div id="job-progress" class="progress-area" hidden><span id="stage-label"></span><button id="cancel-job" class="quiet" type="button" hidden>대기 취소</button></div>
+      <div class="history-heading"><div><span class="eyebrow">03 / GENERATIONS</span><h2>생성 기록 <span id="job-count">0</span></h2></div><span id="queue-summary" class="hint">작업 큐</span></div>
+      <div id="job-list" class="job-list" aria-label="생성 기록"><div class="history-empty">아직 생성한 에셋이 없습니다.</div></div>
+      <button id="load-more" class="quiet load-more" type="button" hidden>이전 기록 더 보기</button>
+      <details class="logs"><summary>선택한 작업의 실행 로그 <span>최근 64 KiB</span></summary><pre id="job-logs">작업을 선택하세요.</pre></details>
+      <footer>PIXAL3D / MLX <span>Private by design. Your Mac does the work.</span></footer>
+    </section>
+  </main>
+  <dialog id="login-dialog" aria-labelledby="login-title"><form id="login-form"><span class="eyebrow">PRIVATE WORKSPACE</span><h2 id="login-title">스튜디오 잠금 해제</h2><p>서버의 API 토큰으로 접속하세요.<br>토큰은 이 탭의 세션에만 저장됩니다.</p><label>API 토큰<input id="api-token" type="password" autocomplete="off" spellcheck="false" required placeholder="서버의 api-token 파일 값"></label><button class="primary" type="submit">연결하기 ↗</button><p id="login-error" class="message" role="alert"></p></form></dialog>
+</body>
+</html>

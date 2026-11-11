@@ -58,6 +58,26 @@ open output.glb
 
 ## What works now
 
+### Private API and dashboard
+
+Run generation from another computer through a private, token-authenticated
+API with a durable single-worker queue, a dashboard, and an interactive PBR
+GLB viewer. Final exports automatically correct UV-seam normals without
+changing triangles or embedded textures. See the
+[local server and Tailscale setup](docs/private-server.md).
+
+```bash
+uv pip install --python .venv/bin/python -e '.[server]'
+npm ci --prefix web && npm run build --prefix web
+.venv/bin/python -m trellmlx.server
+```
+
+The server binds only to `127.0.0.1:8000`; the login token is stored in
+`outputs/server/api-token`. Remote access uses Tailscale Serve, not public
+Funnel exposure. Server startup and Tailscale configuration are explicit.
+
+### Image-to-3D CLI
+
 Full Pixal3D pipeline: image → textured GLB with PBR materials (base color, metallic, roughness).
 
 This checkout defaults to 512 resolution and a 10 GB MLX evaluation guideline,
